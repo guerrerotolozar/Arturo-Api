@@ -1,0 +1,5 @@
+node_modules/
+.env
+/Cerebro/
+/vault-temp/
+.DS_Store

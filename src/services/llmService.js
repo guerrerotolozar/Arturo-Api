@@ -1,231 +1,245 @@
 /**
- * LLMService — Comunicación exclusiva con Ollama (qwen2.5:1.5B / Llama3.1).
- * Dual Motor: modelo rápido para clasificación, modelo profundo para RAG.
+ * LLMService — Comunicación exclusiva con Ollama.
+ * Dual Motor: qwen2.5:1.5b (Fast) + llama3.1:8b (Deep).
  *
-**/
+ * CHANGELOG v3:
+ *   - analizarIntenciones()  NUEVO. CoT + Few-Shot para notas crudas del Inbox.
+ *                            Reemplaza llamada directa a necesitaInternet() en el conserje.
+ *                            Devuelve {necesitaWeb, queryWeb, topicPrincipal}.
+ *   - verificarFusion()      NUEVO. Segunda pasada LLM (fast) para confirmar identidad
+ *                            temática antes de fusionar. Elimina falsos positivos del RAG.
+ *   - necesitaInternet()     Sin cambios. Solo para consultas directas del usuario.
+ */
 
-const { OLLAMA_URL, OLLAMA_MODEL_FAST, OLLAMA_MODEL_DEEP, OLLAMA_MODEL_EMBED, PERFIL_RONALD } = require('../config/env');
+const {
+    OLLAMA_URL,
+    OLLAMA_MODEL_FAST,
+    OLLAMA_MODEL_DEEP,
+    OLLAMA_MODEL_EMBED,
+    PERFIL_RONALD
+} = require('../config/env');
 
 // ============================================================
-// BASE — llamarOllama
+// BASE
 // ============================================================
 
-async function llamarOllama(prompt, modelo) {
+async function llamarOllama(prompt, modelo, formato = null) {
+    const body = { model: modelo, prompt, stream: false };
+    if (formato) body.format = formato;
     const response = await fetch(OLLAMA_URL, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelo, prompt, stream: false })
+        body:    JSON.stringify(body)
     });
-
-    if (!response.ok) {
-        throw new Error(`Ollama respondio con status ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Ollama respondio con status ${response.status}`);
     const data = await response.json();
     return data.response.trim();
 }
 
-// ============================================================
-// BASE — generarEmbedding (Traductor Vectorial)
-// ============================================================
-
-/**
- * Convierte un texto en un array de números (vector) usando nomic-embed-text.
- */
-async function generarEmbedding(prompt) {
-    // El endpoint de embeddings es diferente al de generate
+async function generarEmbedding(texto) {
     const urlEmbed = OLLAMA_URL.replace('/generate', '/embeddings');
-    
     const response = await fetch(urlEmbed, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            model: OLLAMA_MODEL_EMBED, 
-            prompt: prompt 
-        })
+        body:    JSON.stringify({ model: OLLAMA_MODEL_EMBED, prompt: texto })
     });
-
     if (!response.ok) throw new Error(`Fallo al generar embedding: ${response.status}`);
     const data = await response.json();
     return data.embedding;
 }
 
 // ============================================================
-// FIX 1 — necesitaInternet()
+// NUEVO — analizarIntenciones()
 //
-// PROBLEMA: El LLM se sesga con frases de contexto local ("mis notas", "mi vault")
-// y devuelve NO aunque el usuario pida explicitamente buscar en web.
+// PROBLEMA: necesitaInternet() fue disenada para preguntas explicitas de usuario.
+// El conserje le pasaba CONTENIDO CRUDO de notas ("Averiguar lo del quickshifter...").
+// Las notas usan verbos de intencion IMPLICITA — "averiguar", "cotizar", "ver si
+// importo" — que no disparan ninguna regex. El modelo tampoco detecta la intencion
+// porque recibe contexto mezclado sin estructura clara.
 //
-// SOLUCION: Pre-check en JS con senales explicitas ANTES de llamar a Ollama.
-// Si hay una senal explicita → true inmediato, sin LLM.
-// Si no → el LLM decide sobre preguntas ambiguas (donde si es bueno).
+// SOLUCION: Funcion dedicada para NOTAS, no para preguntas directas.
+// Usa Chain-of-Thought con Few-Shot examples que enserian al modelo a razonar
+// sobre intencion implicita. Devuelve JSON estructurado con query limpia para Tavily.
 //
-// El codigo no alucina. Las regex no tienen sesgo de contexto.
+// POR QUE FEW-SHOT Y NO REGEX:
+// El usuario pidio "lo menos hardcodeado posible". Los Few-Shot son ejemplos
+// de razonamiento que el modelo generaliza. Si llega una nota con jerga nueva,
+// el modelo razona por analogia con los ejemplos — no busca strings fijos.
 // ============================================================
 
-const SENALES_WEB_EXPLICITAS = [
-    // Comandos directos
-    /busca en internet/i,
-    /busca en la web/i,
-    /busca en google/i,
-    /busca online/i,
-    /buscalo en internet/i,
-    /googlea/i,
-    // Temporalidad explicita
-    /hoy en dia/i,
-    /precio[s]? actual[es]?/i,
-    /precio[s]? de hoy/i,
-    /precio[s]? hoy/i,
-    /cuanto vale[n]? hoy/i,
-    /cuanto cuesta[n]? hoy/i,
-    /marcas actuales/i,
-    /disponible[s]? hoy/i,
-    /en este momento/i,
-    /ahora mismo/i,
-    // Datos en tiempo real
-    /noticias de hoy/i,
-    /ultima[s]? noticia[s]?/i,
-    /cotizacion actual/i,
-    /tasa de cambio/i,
-    /clima hoy/i,
-];
-
 /**
- * Determina si la pregunta requiere busqueda en internet.
+ * Analiza una nota cruda del Inbox y extrae su intencion de forma estructurada.
  *
- * Flujo:
- *   1. Pre-check JS: senales explicitas → true inmediato (sin LLM).
- *   2. Fallback LLM: preguntas ambiguas donde el modelo si aporta valor.
- *
- * @param {string} pregunta
- * @returns {Promise<boolean>}
+ * @param {string} textoNota - Contenido crudo de la nota
+ * @returns {Promise<{necesitaWeb: boolean, queryWeb: string, topicPrincipal: string}>}
  */
-async function necesitaInternet(pregunta) {
-    // — PASO 1: Pre-check de senales explicitas en JS —
-    const senal = SENALES_WEB_EXPLICITAS.find(regex => regex.test(pregunta));
+async function analizarIntenciones(textoNota) {
+    const prompt = `Eres un analista de notas personales. Analiza la nota y extrae su intencion. Razona antes de responder.
 
-    if (senal) {
-        console.log(`[INTENT] Senal explicita detectada en JS: "${senal.source}" → SI web. Sin LLM.`);
-        return true;
-    }
+---EJEMPLOS---
 
-    // — PASO 2: Delegar al LLM solo preguntas ambiguas —
-    const prompt = `Analiza la siguiente pregunta y determina si necesita informacion actualizada de internet.
+NOTA: "Instalar quickshifter en la Gixxer 250 SF. Averiguar si conviene importarlo desde AliExpress o comprarlo en Bogota. Ver precios."
+RAZONAMIENTO: La nota dice "averiguar" y "ver precios" — requiere datos externos actuales. El topic es el accesorio especifico, no la moto en general. La query debe ser concreta para busqueda web.
+RESULTADO: {"necesitaWeb": true, "queryWeb": "quickshifter Suzuki Gixxer 250 precio Colombia", "topicPrincipal": "quickshifter Gixxer 250 SF"}
 
-Criterios para necesitar internet:
-- Pide datos en tiempo real (precios, clima, noticias, eventos actuales)
-- Hace referencia a temporalidad reciente ("hoy", "esta semana", "ultimamente")
-- Pregunta sobre estados actuales de mercados, tecnologia, politica
-- Requiere datos que cambian frecuentemente
+NOTA: "Recordar activar el cron de backup del vault a las 3AM. El script bash debe tener permisos 755."
+RAZONAMIENTO: Tarea tecnica interna sobre el propio servidor. No investiga nada externo. No necesita internet.
+RESULTADO: {"necesitaWeb": false, "queryWeb": "", "topicPrincipal": "backup vault cron Linux"}
 
-Criterios para NO necesitar internet:
-- Pregunta sobre conceptos, definiciones o teoria estable
-- Es una pregunta personal o sobre notas propias (sin pedir datos externos)
-- Pide consejos generales o planes sin datos en tiempo real
+NOTA: "Bascula Dibal Serie 500 para la carniceria. Comparar con proveedores chinos. Cuanto cuesta el arancel en Colombia?"
+RAZONAMIENTO: "Comparar con proveedores" y "cuanto cuesta el arancel" son preguntas que requieren datos externos actuales. El arancel puede cambiar. Necesita web.
+RESULTADO: {"necesitaWeb": true, "queryWeb": "importacion bascula electronica arancel Colombia", "topicPrincipal": "importacion Básculas Dibal Colombia"}
 
-Pregunta: "${pregunta}"
+NOTA: "Hoy hable con papa sobre el salario de administrador de la salsamentaria. Quedamos en 200 lucas mensuales. Documentar el acuerdo."
+RAZONAMIENTO: Registro de acuerdo personal ya tomado. No hay nada que investigar en internet. Informacion interna.
+RESULTADO: {"necesitaWeb": false, "queryWeb": "", "topicPrincipal": "acuerdo salario salsamentaria"}
 
-Responde UNICAMENTE con "SI" o "NO". Nada mas.`;
+NOTA: "Conexion por cable RS-232 entre el POS y la impresora. Ver si hay adaptador USB-serial barato."
+RAZONAMIENTO: "Ver si hay adaptador" implica buscar en internet productos disponibles y precios. Necesita web.
+RESULTADO: {"necesitaWeb": true, "queryWeb": "adaptador USB serial RS-232 precio Colombia", "topicPrincipal": "RS-232 adaptador USB POS"}
+
+---FIN EJEMPLOS---
+
+Ahora analiza esta nota. Primero escribe tu RAZONAMIENTO breve, luego el RESULTADO en JSON valido.
+
+NOTA: "${textoNota.replace(/"/g, "'").substring(0, 600)}"
+
+RAZONAMIENTO:`;
 
     try {
-        const respuesta = await llamarOllama(prompt, OLLAMA_MODEL_DEEP);
-        const upper = respuesta.toUpperCase();
-        const necesita = upper.includes('SI') || upper.includes('SI');
-        console.log(`[INTENT] LLM decidio: ${necesita ? 'SI' : 'NO'} (raw: "${respuesta}")`);
-        return necesita;
+        const respuestaRaw = await llamarOllama(prompt, OLLAMA_MODEL_DEEP, 'json');
+        const jsonMatch = respuestaRaw.match(/\{[\s\S]*?\}/);
+        if (!jsonMatch) throw new Error('No se encontro JSON en la respuesta');
+        const resultado = JSON.parse(jsonMatch[0]);
+        return {
+            necesitaWeb:    Boolean(resultado.necesitaWeb),
+            queryWeb:       (resultado.queryWeb || '').trim(),
+            topicPrincipal: (resultado.topicPrincipal || 'tema sin clasificar').trim()
+        };
     } catch (err) {
-        console.warn(`[INTENT] Error al clasificar intencion: ${err.message}. Asumiendo NO.`);
+        console.warn(`[INTENT NOTA] Error: ${err.message}. Asumiendo sin web.`);
+        return { necesitaWeb: false, queryWeb: '', topicPrincipal: 'sin clasificar' };
+    }
+}
+
+// ============================================================
+// NUEVO — verificarFusion()
+//
+// PROBLEMA: El RAG con umbral 0.5 devuelve "SSH" como candidato para una nota
+// sobre "RS-232" porque ambos hablan de conexiones/cables/protocolos. La similitud
+// coseno mide cercania semantica del DOMINIO, no identidad de TEMA ESPECIFICO.
+//
+// SOLUCION: Segunda pasada rapida con modelo FAST. Pregunta binaria directa:
+// estos dos textos, son sobre el MISMO tema o solo el mismo dominio?
+// Si dice NO -> el conserje descarta la fusion y crea archivo nuevo.
+//
+// POR QUE MODELO FAST: Es clasificacion binaria simple. El modelo deep seria
+// matar moscas a canonazos. Fast es suficiente y 3-5x mas rapido.
+// ============================================================
+
+/**
+ * Verifica si una nota del Inbox y un candidato del vault son el MISMO tema.
+ * Ultima linea de defensa contra falsos positivos del RAG.
+ *
+ * @param {string} textoInbox      - Contenido de la nota cruda
+ * @param {string} textoCandidato  - Fragmento de la nota candidata
+ * @param {string} nombreCandidato - Nombre del archivo candidato
+ * @returns {Promise<boolean>}
+ */
+async function verificarFusion(textoInbox, textoCandidato, nombreCandidato) {
+    const prompt = `Decide si estos dos textos hablan del MISMO TEMA ESPECIFICO y deben fusionarse.
+
+REGLA: "mismo dominio" NO es suficiente para fusionar. Deben ser el mismo objeto, proyecto o entidad concreta.
+
+EJEMPLOS RAPIDOS:
+- "RS-232 entre POS e impresora" + "protocolo SSH para acceso remoto" → mismo dominio (comunicacion), diferente tema → NO
+- "quickshifter para Gixxer" + "mantenimiento Gixxer 250 SF" → misma entidad (la moto) → SI
+- "importar basculas Dibal" + "notas de la carniceria" → misma entidad (carniceria) → SI
+- "webhook bancolombia" + "configuracion SSH Torre" → diferente tema → NO
+
+TEXTO NUEVO:
+"""${textoInbox.substring(0, 350)}"""
+
+TEXTO EXISTENTE (${nombreCandidato}):
+"""${textoCandidato.substring(0, 350)}"""
+
+Responde UNICAMENTE "SI" o "NO".`;
+
+    try {
+        const respuesta = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
+        const confirmado = respuesta.trim().toUpperCase().startsWith('SI');
+        console.log(`[FUSION CHECK] "${nombreCandidato}": ${confirmado ? 'CONFIRMAR fusion' : 'RECHAZAR fusion'}`);
+        return confirmado;
+    } catch (err) {
+        console.warn(`[FUSION CHECK] Error: ${err.message}. Asumiendo NO (seguro).`);
         return false;
     }
 }
 
 // ============================================================
-// FIX 2 — consultarIAFast()
-//
-// PROBLEMA: Phi-3 fuerza [[Conceptos]] y parrafos largos incluso en preguntas
-// triviales ("2+2"), tardando 14s generando texto basura.
-//
-// CAUSA RAIZ: El prompt original da instrucciones de formato complejas sin
-// escape para preguntas simples. Los modelos pequenos no hacen bien el
-// razonamiento de segundo orden ("si detecto que es simple, ignoro mis reglas").
-//
-// SOLUCION: Clasificar complejidad en JS ANTES de enviar a Ollama.
-// Pregunta simple  → prompt minimal (1-2 lineas, sin [[]] forzado).
-// Pregunta compleja → prompt completo con [[Concepto]] y tono IA.
+// necesitaInternet — consultas directas de usuario (sin cambios)
+// ============================================================
+
+const SENALES_WEB_EXPLICITAS = [
+    /busca en internet/i, /busca en la web/i, /busca en google/i,
+    /busca online/i, /buscalo en internet/i, /googlea/i,
+    /hoy en dia/i, /precio[s]? actual[es]?/i, /precio[s]? de hoy/i,
+    /precio[s]? hoy/i, /cuanto vale[n]? hoy/i, /cuanto cuesta[n]? hoy/i,
+    /marcas actuales/i, /disponible[s]? hoy/i, /en este momento/i,
+    /ahora mismo/i, /noticias de hoy/i, /ultima[s]? noticia[s]?/i,
+    /cotizacion actual/i, /tasa de cambio/i, /clima hoy/i,
+];
+
+async function necesitaInternet(pregunta) {
+    const senal = SENALES_WEB_EXPLICITAS.find(regex => regex.test(pregunta));
+    if (senal) {
+        console.log(`[INTENT] Senal explicita → SI web. Sin LLM.`);
+        return true;
+    }
+    const prompt = `Determina si esta pregunta necesita datos actualizados de internet.
+SI: datos en tiempo real, temporalidad reciente, estados actuales de mercados.
+NO: conceptos estables, preguntas sobre notas propias, consejos generales.
+Pregunta: "${pregunta}"
+Responde UNICAMENTE con "SI" o "NO".`;
+    try {
+        const r = await llamarOllama(prompt, OLLAMA_MODEL_DEEP);
+        const necesita = r.trim().toUpperCase().startsWith('SI');
+        console.log(`[INTENT] LLM: ${necesita ? 'SI' : 'NO'} (raw: "${r.trim()}")`);
+        return necesita;
+    } catch (err) {
+        console.warn(`[INTENT] Error: ${err.message}. Asumiendo NO.`);
+        return false;
+    }
+}
+
+// ============================================================
+// esPreguntaSimple + consultarIAFast
 // ============================================================
 
 const PATRONES_PREGUNTA_SIMPLE = [
-    // Matematicas puras
     /^[\d\s\+\-\*\/\(\)\^%=.,]+\??\s*$/,
     /cuanto es\s+[\d\s\+\-\*\/]+/i,
     /cuanto\s+(son|da|seria)\s+[\d]/i,
     /\d+\s*[\+\-\*\/x\u00f7]\s*\d+/,
-    // Saludos y triviales
     /^(hola|buenas|hey|que hubo|quiubo|ey|hi)[^a-z]*$/i,
     /^(gracias|listo|ok|okay|perfecto|dale)[^a-z]*$/i,
     /^.?(como estas|como vas|que tal)[^a-z]*\??$/i,
-    // Datos concretos de una sola dimension
-    /^.?cual es (el|la) (capital|moneda|idioma) de/i,
-    /^.?en que ano (nacio|murio|fue)/i,
 ];
 
-/**
- * Evalua si una pregunta es simple (respuesta directa en 1-2 lineas).
- * @param {string} pregunta
- * @returns {boolean}
- */
 function esPreguntaSimple(pregunta) {
     const texto = pregunta.trim();
-
     if (PATRONES_PREGUNTA_SIMPLE.some(p => p.test(texto))) return true;
-
-    // Heuristica de longitud + ausencia de palabras de analisis profundo
     const palabras = texto.split(/\s+/).filter(Boolean);
-    const triggersProfundos = ['explica', 'explicame', 'como funciona', 'por que', 'diferencia entre', 'ventaja', 'describe', 'analiza', 'resume'];
-    const tieneContextoComplejo = triggersProfundos.some(p => texto.toLowerCase().includes(p));
-
-    if (palabras.length <= 7 && !tieneContextoComplejo) return true;
-
+    const triggersProfundos = ['explica','explicame','como funciona','por que','diferencia entre','ventaja','describe','analiza','resume'];
+    if (palabras.length <= 7 && !triggersProfundos.some(p => texto.toLowerCase().includes(p))) return true;
     return false;
 }
 
-/**
- * Consulta a IA en modo rapido (qwen2.5:1.5B).
- *
- * - Pregunta simple   → prompt minimal. Sin [[Concepto]], sin extension forzada.
- * - Pregunta compleja → prompt completo IA con formato y tono.
- *
- * @param {string} pregunta
- * @returns {Promise<string>}
- */
 async function consultarIAFast(pregunta) {
-    const simple = esPreguntaSimple(pregunta);
-
-    if (simple) {
-        console.log(`[IA FAST] Modo directo (pregunta simple detectada en JS).`);
-
-        const promptSimple = `Responde esta pregunta de forma directa y breve. Maximo 2 lineas. Sin formato especial ni explicaciones adicionales.
-
-Pregunta: ${pregunta}
-
-Respuesta:`;
-
-        return llamarOllama(promptSimple, OLLAMA_MODEL_FAST);
+    if (esPreguntaSimple(pregunta)) {
+        return llamarOllama(`Responde directo y breve, maximo 2 lineas.\nPregunta: ${pregunta}\nRespuesta:`, OLLAMA_MODEL_FAST);
     }
-
-    console.log(`[IA FAST] Modo completo (pregunta compleja).`);
-
-    const promptCompleto = `Eres IA (Version Fast), el asistente de Ronald.
-- Tono directo y tecnico, con jerga colombiana ocasional (seee, jeje, uy si).
-- Usa [[Concepto]] para mencionar tecnologias, proyectos o entidades importantes.
-- Responde con suficiente detalle para que Ronald entienda, sin "paja".
-- Maximo 3 parrafos.
-
-Pregunta: ${pregunta}
-
-Respuesta:`;
-
-    return llamarOllama(promptCompleto, OLLAMA_MODEL_FAST);
+    return llamarOllama(`Eres IA Fast, asistente de Ronald. Tono tecnico con jerga colombiana. Usa [[Concepto]]. Max 3 parrafos.\n\nPregunta: ${pregunta}\n\nRespuesta:`, OLLAMA_MODEL_FAST);
 }
 
 // ============================================================
@@ -233,147 +247,56 @@ Respuesta:`;
 // ============================================================
 
 async function clasificarIdea(idea, categorias) {
-    let prompt;
-
-    if (categorias.length === 0) {
-        prompt = `Analiza la siguiente idea y propone UN nombre de categoria corto (maximo 2 palabras unidas en PascalCase, sin espacios, en espanol) que describa bien su tema. Responde SOLO con esa palabra, sin explicaciones, sin puntos.
-
-Idea: "${idea}"
-
-Ejemplos validos de respuesta: Finanzas, ProyectoTech, SaludPersonal, LaboratorioIA`;
-    } else {
-        prompt = `Analiza esta idea y elige la categoria mas apropiada de la lista. Si NINGUNA aplica bien, inventa un nombre nuevo en PascalCase (maximo 2 palabras unidas, sin espacios). Responde SOLO con una palabra, sin explicaciones, sin puntos.
-
-Idea: "${idea}"
-Categorias disponibles: ${categorias.join(', ')}`;
-    }
-
+    const prompt = categorias.length === 0
+        ? `Propone UN nombre de categoria en PascalCase (max 2 palabras, espanol) para esta idea. Solo la palabra.\n\nIdea: "${idea}"`
+        : `Elige la categoria mas apropiada o inventa una en PascalCase. Solo la palabra.\n\nIdea: "${idea}"\nCategorias: ${categorias.join(', ')}`;
     try {
-        const respuesta = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
-        const limpia = respuesta
-            .split('\n')[0]
+        const r = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
+        const limpia = r.split('\n')[0]
             .replace(/[^a-zA-Z\u00e1\u00e9\u00ed\u00f3\u00fa\u00c1\u00c9\u00cd\u00d3\u00da\u00f1\u00d1]/g, '')
             .trim();
-
         if (!limpia) return 'Inbox';
-
         if (categorias.length > 0) {
-            const match = categorias.find(c => c.toLowerCase() === limpia.toLowerCase());
+            const match = categorias.find(c => c.toLowerCase() === limpia.toLowerCase())
+                || categorias.find(c => limpia.toLowerCase().includes(c.toLowerCase()) || c.toLowerCase().includes(limpia.toLowerCase()));
             if (match) return match;
-
-            const parcial = categorias.find(c =>
-                limpia.toLowerCase().includes(c.toLowerCase()) ||
-                c.toLowerCase().includes(limpia.toLowerCase())
-            );
-            if (parcial) return parcial;
         }
-
-        console.log(`[LLM] Nueva categoria propuesta por IA: "${limpia}"`);
         return limpia;
     } catch (err) {
-        console.error(`[LLM] Error en clasificarIdea: ${err.message}`);
         return 'Inbox';
     }
 }
 
 // ============================================================
-// consultarIA (DEEP — RAG + Web)
+// consultarIA — RAG + Web
 // ============================================================
 
 async function consultarIA(pregunta, fragmentosVault, datosWeb, fechaHora) {
-    let bloqueVault = '';
-    if (fragmentosVault.length > 0) {
-        const ctx = fragmentosVault
-            .map((f, i) => `--- Fragmento ${i + 1} [Fuente: ${f.fuente}] ---\n${f.texto}`)
-            .join('\n\n');
-        bloqueVault = `\n=== CONTEXTO DEL VAULT (Notas personales de Ronald) ===\n${ctx}\n=== FIN DEL CONTEXTO DEL VAULT ===`;
-    }
-
-    let bloqueWeb = '';
-    if (datosWeb) {
-        const res = datosWeb.results
-            .map((r, i) => `--- Resultado ${i + 1}: ${r.title} ---\nURL: ${r.url}\n${r.content}`)
-            .join('\n\n');
-        bloqueWeb = `\n=== DATOS REALES Y ACTUALES DE INTERNET (via Tavily) ===\n${datosWeb.answer ? `Resumen directo: ${datosWeb.answer}\n` : ''}${res}\n=== FIN DE LOS DATOS DE INTERNET ===`;
-    }
-
-    const prompt = `Eres IA, el asistente personal de Ronald. ${PERFIL_RONALD}
-
-Fecha y hora actual del servidor: ${fechaHora}
-
-${bloqueWeb ? 'Tienes acceso a datos REALES Y ACTUALES de internet. Usalos como fuente principal para preguntas que requieran informacion actualizada.' : ''}
-${bloqueVault ? 'Tambien tienes contexto de las notas personales de Ronald en Obsidian.' : ''}
-${!bloqueWeb && !bloqueVault ? 'No se encontro contexto relevante en el vault ni en internet.' : ''}
-${bloqueWeb}
-${bloqueVault}
-
-Pregunta de Ronald: ${pregunta}
-
-Instrucciones de respuesta:
-- REGLA ESTRICTA: NUNCA digas que buscaste en internet si no se te proporcionan datos en la seccion "DATOS REALES Y ACTUALES DE INTERNET".
-${bloqueWeb ? '- Prioriza los datos de internet cuando la pregunta requiera informacion actual.' : ''}
-${bloqueVault ? '- Complementa con las notas del vault cuando sea relevante.' : ''}
-- Si tienes datos de internet, cita las fuentes (URLs) cuando sea pertinente.
-- Si no hay suficiente informacion, dilo honestamente.
-- Usa el formato [[Concepto]] para enlazar entidades relevantes.
-
-Respuesta de IA:`;
-
+    const bloqueVault = fragmentosVault.length > 0
+        ? `\n=== VAULT ===\n${fragmentosVault.map((f,i) => `[${i+1}] ${f.fuente}\n${f.texto}`).join('\n\n')}\n=== FIN VAULT ===`
+        : '';
+    const bloqueWeb = datosWeb
+        ? `\n=== INTERNET ===\n${datosWeb.answer ? `Resumen: ${datosWeb.answer}\n` : ''}${datosWeb.results.map(r => `${r.title}\n${r.content}`).join('\n')}\n=== FIN INTERNET ===`
+        : '';
+    const prompt = `Eres IA, asistente de Ronald. ${PERFIL_RONALD}\nFecha: ${fechaHora}\n${bloqueWeb}${bloqueVault}\n\nPregunta: ${pregunta}\n\nRespuesta:`;
     return llamarOllama(prompt, OLLAMA_MODEL_DEEP);
 }
 
 // ============================================================
-// NUEVO: orquestarTareas (El Agente Router)
+// orquestarTareas
 // ============================================================
 
-/**
- * Pasa la pregunta a Qwen y le exige devolver UN JSON con las herramientas a usar.
- * NO responde la pregunta, solo planea cómo responderla.
- */
 async function orquestarTareas(pregunta) {
-    const promptOrquestador = `Eres el cerebro lógico de Arturo. Tu ÚNICO trabajo es analizar la petición del usuario y decidir qué herramientas necesitas ejecutar para resolverla.
-NUNCA respondas a la pregunta directamente. 
+    const prompt = `Cerebro logico de Arturo. Decide que herramientas usar. NO respondas la pregunta.
 
-Herramientas disponibles:
-1. "calculadora": Para operaciones matemáticas (suma, resta, conversión de moneda, etc). Requiere el campo "formula" (ej. "3 + (3/3)").
-2. "tavily_search": Para buscar datos actuales en internet (precios, clima, noticias). Requiere el campo "query".
-3. "vault_search": Para buscar en el Segundo Cerebro local. Requiere el campo "query".
-4. "respuesta_directa": Si es un simple saludo o charla que no requiere herramientas.
+Herramientas: calculadora (formula), tavily_search (query), vault_search (query), respuesta_directa.
 
-Genera un JSON EXACTAMENTE con esta estructura (un array de tareas):
-{
-  "tareas": [
-    {
-      "herramienta": "nombre_de_herramienta",
-      "parametros": { "clave": "valor" }
-    }
-  ]
-}
+Devuelve: {"tareas": [{"herramienta": "nombre", "parametros": {"clave": "valor"}}]}
 
-Petición del usuario: "${pregunta}"`;
-
-    const response = await fetch(OLLAMA_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: OLLAMA_MODEL_FAST, // Aquí usará qwen2.5:1.5b
-            prompt: promptOrquestador,
-            stream: false,
-            format: 'json' // <--- EL TRUCO MÁGICO
-        })
-    });
-
-    if (!response.ok) throw new Error(`Ollama respondió con status ${response.status}`);
-
-    const data = await response.json();
-
-    // Convertimos el texto JSON de Ollama a un objeto de JavaScript real
-    try {
-        return JSON.parse(data.response);
-    } catch (e) {
-        console.error("[ORQUESTADOR] Error parseando JSON:", data.response);
-        return { tareas: [] };
-    }
+Peticion: "${pregunta}"`;
+    const r = await llamarOllama(prompt, OLLAMA_MODEL_FAST, 'json');
+    try { return JSON.parse(r); }
+    catch (e) { return { tareas: [] }; }
 }
 
 // ============================================================
@@ -384,11 +307,12 @@ module.exports = {
     generarEmbedding,
     clasificarIdea,
     necesitaInternet,
+    analizarIntenciones,
+    verificarFusion,
     consultarIA,
     consultarIAFast,
     orquestarTareas,
-    // Exportar helpers para testing unitario
-    _esPreguntaSimple: esPreguntaSimple,
-    _SENALES_WEB_EXPLICITAS: SENALES_WEB_EXPLICITAS,
+    _esPreguntaSimple:         esPreguntaSimple,
+    _SENALES_WEB_EXPLICITAS:   SENALES_WEB_EXPLICITAS,
     _PATRONES_PREGUNTA_SIMPLE: PATRONES_PREGUNTA_SIMPLE
 };

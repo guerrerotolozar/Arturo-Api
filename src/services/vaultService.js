@@ -1,47 +1,46 @@
 /**
- * VaultService — Encargado EXCLUSIVO de interactuar con el sistema de archivos
- * del vault de Obsidian (Segundo Cerebro).
+ * VaultService — Interaccion exclusiva con el vault de Obsidian.
  *
-**/
+ * CHANGELOG v3:
+ *   - buscarContexto()        Acepta umbral configurable (default 0.5 para RAG general).
+ *   - buscarCandidatosFusion() NUEVO. Umbral alto (default 0.78) + devuelve candidatos
+ *                              con ruta absoluta para que el conserje pueda fusionar.
+ *                              Separa semanticamente "buscar contexto informativo"
+ *                              de "buscar archivo candidato para fusionar".
+ *
+ * UMBRAL DE FUSION: 0.78 (configurable via VAULT_UMBRAL_FUSION en .env)
+ *   - nomic-embed-text reporta similitudes 0.6-0.95 para textos relacionados
+ *   - 0.5 es apropiado para RAG informativo (captura contexto amplio)
+ *   - 0.78 exige alta certeza semantica antes de proponer fusion
+ *   - Ajustable segun comportamiento observado con el propio vault
+ */
 
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
 const { VAULT_PATH } = require('../config/env');
 const { generarEmbedding } = require('./llmService');
 
+// Umbral de fusion: configurable sin tocar codigo
+const UMBRAL_FUSION = parseFloat(process.env.VAULT_UMBRAL_FUSION || '0.78');
+
 // ============================================================
-// HELPERS INTERNOS
+// HELPERS
 // ============================================================
 
-/**
- * Garantiza que un directorio exista, creándolo recursivamente si hace falta.
- * @param {string} dirPath
- */
 function asegurarDirectorio(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-    }
+    if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
 
 // ============================================================
-// LECTURA DEL VAULT
+// LECTURA
 // ============================================================
 
-/**
- * Lee recursivamente todos los archivos .md dentro del vault.
- * Ignora carpetas ocultas (como .obsidian).
- * @param {string} dir
- * @returns {Array<{ruta: string, nombre: string, contenido: string}>}
- */
 function leerVaultRecursivo(dir = VAULT_PATH) {
     const resultados = [];
-
     try {
         const entradas = fs.readdirSync(dir, { withFileTypes: true });
-
         for (const entrada of entradas) {
             const rutaCompleta = path.join(dir, entrada.name);
-
             if (entrada.isDirectory()) {
                 if (entrada.name.startsWith('.') || entrada.name === 'node_modules') continue;
                 resultados.push(...leerVaultRecursivo(rutaCompleta));
@@ -49,8 +48,8 @@ function leerVaultRecursivo(dir = VAULT_PATH) {
                 try {
                     const contenido = fs.readFileSync(rutaCompleta, 'utf-8');
                     resultados.push({
-                        ruta: rutaCompleta.replace(VAULT_PATH, ''),
-                        nombre: path.basename(rutaCompleta, '.md'),
+                        ruta:     rutaCompleta.replace(VAULT_PATH, ''),
+                        nombre:   path.basename(rutaCompleta, '.md'),
                         contenido
                     });
                 } catch (err) {
@@ -59,180 +58,37 @@ function leerVaultRecursivo(dir = VAULT_PATH) {
             }
         }
     } catch (err) {
-        console.error(`[WARN] No se pudo acceder al directorio ${dir}: ${err.message}`);
+        console.error(`[WARN] No se pudo acceder a ${dir}: ${err.message}`);
     }
-
     return resultados;
 }
 
-// ============================================================
-// BUG 1 FIX — obtenerCategorias (recursivo, sin hardcodeo)
-// ============================================================
-
-/**
- * Devuelve los nombres de TODAS las notas .md del vault, sin importar en qué
- * subcarpeta vivan. Si el vault está vacío o hay un error, devuelve [].
- * La IA tiene libertad total para crear categorías nuevas.
- * @returns {string[]}
- */
 function obtenerCategorias() {
     try {
-        const notas = leerVaultRecursivo();
-        return notas.map(n => n.nombre);
+        return leerVaultRecursivo().map(n => n.nombre);
     } catch {
         return [];
     }
 }
 
 // ============================================================
-// BUG 2 FIX — escribirIdeaEnVault (recursivo + Inbox como fallback)
+// RAG VECTORIAL
 // ============================================================
 
-/**
- * Escribe una idea en la nota correcta del vault.
- *   1. Busca la nota por nombre recursivamente (respeta reorganizaciones de carpetas).
- *   2. Si la nota no existe, la crea en /Inbox/ con frontmatter YAML básico.
- *   3. Si la IA pasó una rutaEspecifica, la respeta por encima de todo.
- *
- * @param {string} categoria   - Nombre de la nota destino (sin extensión)
- * @param {string} idea        - Texto de la idea
- * @param {string} timestamp   - Timestamp formateado
- * @param {string|null} rutaEspecifica - Ruta relativa opcional (ej: 'Finanzas/NuevaCategoria.md')
- */
-function escribirIdeaEnVault(categoria, idea, timestamp, rutaEspecifica = null) {
-    let archivoDestino;
-
-    if (rutaEspecifica) {
-        // La IA especificó una ruta concreta — respetar al 100%
-        archivoDestino = path.join(VAULT_PATH, rutaEspecifica);
-        asegurarDirectorio(path.dirname(archivoDestino));
-
-    } else {
-        // Buscar la nota real en el vault (recursivo)
-        const notas = leerVaultRecursivo();
-        const notaReal = notas.find(n =>
-            n.nombre.toLowerCase() === categoria.toLowerCase()
-        );
-
-        if (notaReal) {
-            // Nota encontrada en su ruta actual — appendear ahí
-            archivoDestino = path.join(VAULT_PATH, notaReal.ruta);
-
-        } else {
-            // Nota nueva — crear en /Inbox/ con frontmatter
-            const inboxDir = path.join(VAULT_PATH, 'Inbox');
-            asegurarDirectorio(inboxDir);
-            archivoDestino = path.join(inboxDir, `${categoria}.md`);
-
-            if (!fs.existsSync(archivoDestino)) {
-                const frontmatter = [
-                    '---',
-                    `tipo: categoria_nueva`,
-                    `creado: ${timestamp}`,
-                    `fuente: webhook_cerebro`,
-                    `revisado: false`,
-                    '---',
-                    `# ${categoria}`,
-                    '',
-                    '> Nota creada automáticamente por Arturo. Mover a la carpeta correcta cuando sea relevante.',
-                    ''
-                ].join('\n');
-                fs.writeFileSync(archivoDestino, frontmatter);
-                console.log(`[INBOX] Nueva categoría creada: Inbox/${categoria}.md`);
-            }
-        }
-    }
-
-    const entrada = `\n- [${timestamp}] ${idea}`;
-    fs.appendFileSync(archivoDestino, entrada);
-    console.log(`[VAULT] Idea guardada en: ${archivoDestino.replace(VAULT_PATH, '')}`);
-}
-
-// ============================================================
-// NUEVO — crearNotaEstructurada (para /IA/nota)
-// ============================================================
-
-/**
- * Crea una nota .md completa con frontmatter, título y contenido.
- * Si la ruta ya existe, lanza un error (no sobreescribe sin aviso).
- *
- * @param {object} params
- * @param {string} params.titulo     - Título de la nota (también nombre del archivo)
- * @param {string} params.contenido  - Cuerpo en Markdown
- * @param {string} params.carpeta    - Subcarpeta relativa dentro del vault (ej: 'Finanzas')
- * @param {string} params.tipo       - Valor del campo `tipo:` en el frontmatter
- * @param {string} params.timestamp  - Timestamp de creación
- * @returns {{ ruta: string, creada: boolean }}
- */
-function crearNotaEstructurada({ titulo, contenido, carpeta = 'Inbox', tipo = 'nota', timestamp }) {
-    const nombreArchivo = titulo.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
-    const dirDestino = path.join(VAULT_PATH, carpeta);
-
-    asegurarDirectorio(dirDestino);
-
-    const archivoDestino = path.join(dirDestino, `${nombreArchivo}.md`);
-    const yaExiste = fs.existsSync(archivoDestino);
-
-    if (yaExiste) {
-        console.warn(`[VAULT] La nota "${nombreArchivo}.md" ya existe en ${carpeta}/. No se sobreescribió.`);
-        return { ruta: `${carpeta}/${nombreArchivo}.md`, creada: false };
-    }
-
-    const frontmatter = [
-        '---',
-        `tipo: ${tipo}`,
-        `creado: ${timestamp}`,
-        `fuente: IA_nota`,
-        '---',
-        `# ${titulo}`,
-        ''
-    ].join('\n');
-
-    fs.writeFileSync(archivoDestino, frontmatter + contenido);
-    console.log(`[VAULT] Nota estructurada creada: ${carpeta}/${nombreArchivo}.md`);
-
-    return { ruta: `${carpeta}/${nombreArchivo}.md`, creada: true };
-}
-
-// ============================================================
-// RAG — buscarContexto
-// ============================================================
-
-/**
- * Extrae fragmentos relevantes del vault basándose en palabras clave de la pregunta.
- * @param {string} pregunta
- * @param {number} maxFragmentos
- * @returns {Array<{fuente: string, texto: string, score: number}>}
- */
-
-// ============================================================
-// RAG VECTORIAL — buscarContexto (Cero LangChain)
-// ============================================================
-
-// Memoria caché en RAM para no pedirle el mismo vector a Ollama dos veces
 const vectorCache = new Map();
 
-/**
- * Fórmula matemática para calcular qué tan cerca apuntan dos vectores en el espacio 3D.
- * 1.0 = Son idénticos (el mismo significado). 0.0 = No tienen nada que ver.
- */
 function similitudCoseno(vecA, vecB) {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
+    let dot = 0, normA = 0, normB = 0;
     for (let i = 0; i < vecA.length; i++) {
-        dotProduct += vecA[i] * vecB[i];
+        dot   += vecA[i] * vecB[i];
         normA += vecA[i] * vecA[i];
         normB += vecB[i] * vecB[i];
     }
     if (normA === 0 || normB === 0) return 0;
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-/**
- * Obtiene el vector de un texto, usando la caché de RAM si ya existe.
- */
-async function obtenerVectorCacheados(texto) {
+async function obtenerVectorCacheado(texto) {
     if (vectorCache.has(texto)) return vectorCache.get(texto);
     const vector = await generarEmbedding(texto);
     vectorCache.set(texto, vector);
@@ -240,127 +96,200 @@ async function obtenerVectorCacheados(texto) {
 }
 
 /**
- * Búsqueda semántica usando Álgebra Lineal.
+ * Busqueda semantica general para RAG informativo.
+ * Umbral bajo (0.5 por defecto) — captura contexto amplio.
+ * Usar para responder preguntas, no para decidir fusiones.
+ *
+ * @param {string} pregunta
+ * @param {number} maxFragmentos
+ * @param {number} umbral        - Configurable. Default 0.5.
  */
-async function buscarContexto(pregunta, maxFragmentos = 5) {
+async function buscarContexto(pregunta, maxFragmentos = 5, umbral = 0.5) {
     const notas = leerVaultRecursivo();
     if (notas.length === 0) return [];
 
-    console.log(`[RAG] Vectorizando pregunta...`);
+    console.log(`[RAG] Vectorizando query...`);
     const vectorPregunta = await generarEmbedding(pregunta);
     const fragmentosPuntuados = [];
 
-    console.log(`[RAG] Analizando espacio latente de ${notas.length} notas...`);
-    
     for (const nota of notas) {
-        // Dividimos la nota por párrafos o secciones
-        const secciones = nota.contenido.split('\n\n'); 
-        
+        const secciones = nota.contenido.split('\n\n');
         for (const seccion of secciones) {
             const textoLimpio = seccion.trim();
-            // Ignorar basura muy corta que ensucia el RAG
-            if (textoLimpio.length < 40) continue; 
-
-            // Convertimos la sección a números (usa caché si ya lo hizo antes)
-            const vectorSeccion = await obtenerVectorCacheados(textoLimpio);
-            
-            // Calculamos la similitud de conceptos
+            if (textoLimpio.length < 40) continue;
+            const vectorSeccion = await obtenerVectorCacheado(textoLimpio);
             const score = similitudCoseno(vectorPregunta, vectorSeccion);
-
-            // Umbral de 0.5 (depende del modelo, Nomic suele dar valores altos)
-            if (score > 0.5) {
+            if (score > umbral) {
                 fragmentosPuntuados.push({
                     fuente: `${nota.nombre} (${nota.ruta})`,
-                    texto: textoLimpio.substring(0, 800),
-                    score: score
+                    texto:  textoLimpio.substring(0, 800),
+                    score
                 });
             }
         }
     }
 
-    // Ordenamos de mayor similitud a menor
     fragmentosPuntuados.sort((a, b) => b.score - a.score);
     return fragmentosPuntuados.slice(0, maxFragmentos);
 }
 
+/**
+ * Busqueda semantica para candidatos de FUSION.
+ * Umbral alto (UMBRAL_FUSION, default 0.78) — solo candidatos con alta certeza.
+ * Devuelve ademas la ruta absoluta del archivo para que el conserje pueda escribirlo.
+ *
+ * SEPARACION DE RESPONSABILIDADES:
+ *   buscarContexto()         → RAG informativo (responder preguntas)
+ *   buscarCandidatosFusion() → decidir si FUSIONAR o CREAR (conserje)
+ *
+ * La diferencia no es solo el umbral. El resultado incluye rutaAbsoluta y
+ * toda la nota (no solo un fragmento) para que verificarFusion() tenga contexto completo.
+ *
+ * @param {string} texto        - Contenido de la nota del Inbox
+ * @param {number} maxCandidatos
+ * @returns {Array<{nombre, ruta, rutaAbsoluta, fragmento, notaCompleta, score}>}
+ */
+async function buscarCandidatosFusion(texto, maxCandidatos = 3) {
+    const notas = leerVaultRecursivo();
+    if (notas.length === 0) return [];
+
+    console.log(`[RAG FUSION] Buscando candidatos con umbral ${UMBRAL_FUSION}...`);
+    const vectorTexto = await generarEmbedding(texto.substring(0, 600));
+    const candidatos  = [];
+
+    for (const nota of notas) {
+        // Vectorizar primero parrafos de la nota para maxima precision
+        const secciones = nota.contenido.split('\n\n');
+        let maxScore = 0;
+        let mejorSeccion = '';
+
+        for (const seccion of secciones) {
+            const limpio = seccion.trim();
+            if (limpio.length < 40) continue;
+            const vectorSeccion = await obtenerVectorCacheado(limpio);
+            const score = similitudCoseno(vectorTexto, vectorSeccion);
+            if (score > maxScore) {
+                maxScore     = score;
+                mejorSeccion = limpio;
+            }
+        }
+
+        if (maxScore >= UMBRAL_FUSION) {
+            candidatos.push({
+                nombre:       nota.nombre,
+                ruta:         nota.ruta,
+                rutaAbsoluta: path.join(VAULT_PATH, nota.ruta),
+                fragmento:    mejorSeccion.substring(0, 500),
+                notaCompleta: nota.contenido.substring(0, 800),
+                score:        maxScore
+            });
+        }
+    }
+
+    candidatos.sort((a, b) => b.score - a.score);
+    const resultado = candidatos.slice(0, maxCandidatos);
+
+    if (resultado.length > 0) {
+        console.log(`[RAG FUSION] ${resultado.length} candidato(s) encontrado(s): ${resultado.map(c => `${c.nombre} (${c.score.toFixed(3)})`).join(', ')}`);
+    } else {
+        console.log(`[RAG FUSION] Sin candidatos sobre el umbral ${UMBRAL_FUSION} → CREAR nota nueva.`);
+    }
+
+    return resultado;
+}
+
 // ============================================================
-// GRAFO 3D
+// ESCRITURA
 // ============================================================
 
-/**
- * Genera el JSON de nodos y enlaces para el grafo 3D.
- */
+function escribirIdeaEnVault(categoria, idea, timestamp, rutaEspecifica = null) {
+    let archivoDestino;
+
+    if (rutaEspecifica) {
+        archivoDestino = path.join(VAULT_PATH, rutaEspecifica);
+        asegurarDirectorio(path.dirname(archivoDestino));
+    } else {
+        const notas    = leerVaultRecursivo();
+        const notaReal = notas.find(n => n.nombre.toLowerCase() === categoria.toLowerCase());
+
+        if (notaReal) {
+            archivoDestino = path.join(VAULT_PATH, notaReal.ruta);
+        } else {
+            const inboxDir = path.join(VAULT_PATH, 'Inbox');
+            asegurarDirectorio(inboxDir);
+            archivoDestino = path.join(inboxDir, `${categoria}.md`);
+
+            if (!fs.existsSync(archivoDestino)) {
+                const frontmatter = [
+                    '---', `tipo: categoria_nueva`, `creado: ${timestamp}`,
+                    `fuente: webhook_cerebro`, `revisado: false`,
+                    '---', `# ${categoria}`, '',
+                    '> Nota creada automaticamente por Arturo.', ''
+                ].join('\n');
+                fs.writeFileSync(archivoDestino, frontmatter);
+                console.log(`[INBOX] Nueva categoria creada: Inbox/${categoria}.md`);
+            }
+        }
+    }
+
+    fs.appendFileSync(archivoDestino, `\n- [${timestamp}] ${idea}`);
+    console.log(`[VAULT] Idea guardada en: ${archivoDestino.replace(VAULT_PATH, '')}`);
+}
+
+function crearNotaEstructurada({ titulo, contenido, carpeta = 'Inbox', tipo = 'nota', timestamp }) {
+    const nombreArchivo = titulo
+        .replace(/[^a-zA-Z\u00e1\u00e9\u00ed\u00f3\u00fa\u00c1\u00c9\u00cd\u00d3\u00da\u00f1\u00d1\u00fc\u00dc0-9\s_-]/g, '')
+        .trim().replace(/\s+/g, '_');
+    const dirDestino     = path.join(VAULT_PATH, carpeta);
+    asegurarDirectorio(dirDestino);
+    const archivoDestino = path.join(dirDestino, `${nombreArchivo}.md`);
+
+    if (fs.existsSync(archivoDestino)) {
+        console.warn(`[VAULT] "${nombreArchivo}.md" ya existe en ${carpeta}/. No se sobreescribio.`);
+        return { ruta: `${carpeta}/${nombreArchivo}.md`, creada: false };
+    }
+
+    const frontmatter = ['---', `tipo: ${tipo}`, `creado: ${timestamp}`, `fuente: IA_nota`, '---', `# ${titulo}`, ''].join('\n');
+    fs.writeFileSync(archivoDestino, frontmatter + contenido);
+    console.log(`[VAULT] Nota estructurada creada: ${carpeta}/${nombreArchivo}.md`);
+    return { ruta: `${carpeta}/${nombreArchivo}.md`, creada: true };
+}
+
+// ============================================================
+// GRAFO
+// ============================================================
+
 function generarGrafoJSON() {
     const notas = leerVaultRecursivo();
-    const nodes = [];
-    const links = [];
+    const nodes = [], links = [];
     const regexEnlaces = /\[\[(.*?)\]\]/g;
 
     for (const nota of notas) {
-        let dir = path.dirname(nota.ruta).replace(/\\/g, '/');
-        let grupo = (dir === '.' || dir === '/' || dir === '') ? 'Cerebro/Raíz' : dir.replace(/^\//, '');
-
+        const dir   = path.dirname(nota.ruta).replace(/\\/g, '/');
+        const grupo = (dir === '.' || dir === '/' || dir === '') ? 'Cerebro/Raiz' : dir.replace(/^\//, '');
         nodes.push({ id: nota.nombre, grupo });
-
         let match;
         while ((match = regexEnlaces.exec(nota.contenido)) !== null) {
-            const targetReal = match[1].split('|')[0].trim();
-            links.push({ source: nota.nombre, target: targetReal });
+            links.push({ source: nota.nombre, target: match[1].split('|')[0].trim() });
         }
     }
-
     return { nodes, links };
 }
 
-/**
- * Estadísticas del grafo: hubs, huérfanos y conteo por carpeta.
- * Endpoint: GET /api/grafo/stats
- */
 function obtenerEstadisticasGrafo() {
     const { nodes, links } = generarGrafoJSON();
-
-    // Contar conexiones entrantes por nodo
-    const contadorEntrantes = {};
-    for (const node of nodes) contadorEntrantes[node.id] = 0;
-    for (const link of links) {
-        if (contadorEntrantes[link.target] !== undefined) {
-            contadorEntrantes[link.target]++;
-        }
+    const entrantes = {}, salientes = {};
+    for (const n of nodes) { entrantes[n.id] = 0; salientes[n.id] = 0; }
+    for (const l of links) {
+        if (entrantes[l.target] !== undefined) entrantes[l.target]++;
+        if (salientes[l.source] !== undefined) salientes[l.source]++;
     }
-
-    // Contar conexiones salientes por nodo
-    const contadorSalientes = {};
-    for (const node of nodes) contadorSalientes[node.id] = 0;
-    for (const link of links) {
-        if (contadorSalientes[link.source] !== undefined) {
-            contadorSalientes[link.source]++;
-        }
-    }
-
-    // Nodos huérfanos: 0 entrantes Y 0 salientes
-    const huerfanos = nodes
-        .filter(n => contadorEntrantes[n.id] === 0 && contadorSalientes[n.id] === 0)
-        .map(n => n.id);
-
-    // Top 5 hubs (más conexiones entrantes)
-    const hubs = nodes
-        .map(n => ({ id: n.id, entrantes: contadorEntrantes[n.id], salientes: contadorSalientes[n.id] }))
-        .sort((a, b) => b.entrantes - a.entrantes)
-        .slice(0, 5);
-
-    // Nodos por carpeta/grupo
+    const huerfanos = nodes.filter(n => entrantes[n.id] === 0 && salientes[n.id] === 0).map(n => n.id);
+    const hubs      = nodes.map(n => ({ id: n.id, entrantes: entrantes[n.id], salientes: salientes[n.id] }))
+        .sort((a, b) => b.entrantes - a.entrantes).slice(0, 5);
     const porCarpeta = {};
-    for (const node of nodes) {
-        porCarpeta[node.grupo] = (porCarpeta[node.grupo] || 0) + 1;
-    }
-
-    return {
-        total_nodos: nodes.length,
-        total_enlaces: links.length,
-        hubs,
-        huerfanos,
-        por_carpeta: porCarpeta
-    };
+    for (const n of nodes) porCarpeta[n.grupo] = (porCarpeta[n.grupo] || 0) + 1;
+    return { total_nodos: nodes.length, total_enlaces: links.length, hubs, huerfanos, por_carpeta: porCarpeta };
 }
 
 // ============================================================
@@ -372,6 +301,8 @@ module.exports = {
     crearNotaEstructurada,
     leerVaultRecursivo,
     buscarContexto,
+    buscarCandidatosFusion,
     generarGrafoJSON,
-    obtenerEstadisticasGrafo
+    obtenerEstadisticasGrafo,
+    UMBRAL_FUSION
 };

@@ -18,7 +18,7 @@ const VAULT_PATH = process.env.VAULT_PATH || '/home/ronald/vault-temp';
 // ============================================================
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate';
 const OLLAMA_MODEL_FAST = process.env.OLLAMA_MODEL_FAST || 'qwen2.5:1.5b';
-const OLLAMA_MODEL_DEEP = process.env.OLLAMA_MODEL_DEEP || 'llama3.1';
+const OLLAMA_MODEL_DEEP = process.env.OLLAMA_MODEL_DEEP || 'qwen2.5:14b';
 const OLLAMA_MODEL_EMBED = process.env.OLLAMA_MODEL_EMBED || 'nomic-embed-text';
 
 // ============================================================

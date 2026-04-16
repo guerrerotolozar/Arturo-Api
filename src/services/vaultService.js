@@ -42,7 +42,7 @@ function leerVaultRecursivo(dir = VAULT_PATH) {
         for (const entrada of entradas) {
             const rutaCompleta = path.join(dir, entrada.name);
             if (entrada.isDirectory()) {
-                if (entrada.name.startsWith('.') || entrada.name === 'node_modules') continue;
+                if (entrada.name.startsWith('.') || entrada.name === 'node_modules' || entrada.name === 'Inbox') continue;
                 resultados.push(...leerVaultRecursivo(rutaCompleta));
             } else if (entrada.name.endsWith('.md')) {
                 try {

@@ -32,11 +32,15 @@
 const fs   = require('fs');
 const path = require('path');
 
-const { VAULT_PATH, OLLAMA_URL, OLLAMA_MODEL_DEEP, PERFIL_RONALD } = require('../config/env');
+const { VAULT_PATH, OLLAMA_URL, OLLAMA_MODEL_DEEP, PERFIL_RONALD }  = require('../config/env');
 const { obtenerTimestamp }                                          = require('../utils/dateUtils');
 const { buscarCandidatosFusion, obtenerCategorias }                 = require('../services/vaultService');
 const { analizarIntenciones, verificarFusion }                      = require('../services/llmService');
 const { buscarEnWeb }                                               = require('../services/searchService');
+const { performance }                                               = require('perf_hooks');
+
+// Candado global para evitar colapsar la CPU con dobles peticiones
+let procesandoInbox = false;
 
 // ============================================================
 // PROMPT DE SINTESIS — con los 3 fixes de prompt
@@ -80,7 +84,10 @@ EJEMPLOS DE PRESERVACION CORRECTA:
 
 === CONCEPTOS EXISTENTES EN LA BOVEDA ===
 ${listaConceptos}
-REGLA: Cuando menciones cualquier entidad de esta lista, usa [[NombreDeLaEntidad]].
+REGLA DE SINAPSIS (¡CRITICO!): Debes integrar organicamente los conceptos de esta lista usando [[Corchetes Dobles]] DENTRO de tu redaccion natural.
+NO crees un parrafo al final solo para poner enlaces.
+EJEMPLO CORRECTO: "Las basculas [[Dibal]] se instalaran despues de comprar la [[Gixxer 250 SF]]."
+EJEMPLO INCORRECTO: "Las basculas se instalaran pronto. [[Dibal]] se refiere a la marca."
 
 === DATOS RECIENTES DE INTERNET ===
 ${datosWeb}
@@ -110,204 +117,169 @@ Responde UNICAMENTE con JSON valido:
 }
 
 // ============================================================
-// HANDLER PRINCIPAL
+// HANDLER PRINCIPAL (MODELO NOTARIO - SEGUNDO PLANO)
 // ============================================================
 
 async function limpiarInbox(req, res) {
     const inboxPath = path.join(VAULT_PATH, 'Inbox');
 
+    // Si Arturo ya está trabajando, rebota la petición
+    if (procesandoInbox) {
+        return res.status(429).json({ 
+            mensaje: "Arturo ya está procesando el Inbox. Por favor, espere a que termine." 
+        });
+    }
+    
     if (!fs.existsSync(inboxPath)) {
-        return res.status(200).json({ mensaje: 'El Inbox esta vacio o no existe.' });
+        return res.status(200).json({ mensaje: 'El Inbox está vacío o no existe.' });
     }
 
     const archivos = fs.readdirSync(inboxPath).filter(f => f.endsWith('.md'));
+    
     if (archivos.length === 0) {
         return res.status(200).json({ mensaje: 'No hay notas pendientes en el Inbox.' });
     }
 
-    console.log(`\n[ORGANIZADOR V5] Iniciando procesamiento de ${archivos.length} nota(s)...`);
-    const procesados = [];
-    const listaConceptos = obtenerCategorias().join(', ');
+    // 1. EL NOTARIO RESPONDE INMEDIATO (Evita el ECONNRESET de Postman)
+    res.status(202).json({
+        mensaje: `¡Orden recibida! Arturo procesará ${archivos.length} notas en segundo plano.`,
+        archivos_pendientes: archivos,
+        advertencia: "Como se usa CPU, esto tomará unos minutos. Revisa tu Obsidian más tarde."
+    });
 
-    try {
-        for (const archivo of archivos) {
-            const rutaVieja    = path.join(inboxPath, archivo);
-            const contenidoCrudo = fs.readFileSync(rutaVieja, 'utf-8');
+    // CERRAMOS EL CANDADO
+    procesandoInbox = true;
 
-            console.log(`\n${'─'.repeat(50)}`);
-            console.log(`[ORGANIZADOR] Procesando: ${archivo}`);
+    console.log(`\n[ORGANIZADOR V5] Iniciando procesamiento en SEGUNDO PLANO de ${archivos.length} nota(s)...`);
 
-            // ────────────────────────────────────────
-            // PASO 1: ANALIZAR INTENCIONES (FIX 1 + FIX 4)
-            // analizarIntenciones() reemplaza necesitaInternet(contenidoCrudo).
-            // Detecta intencion implicita en notas Y genera query limpia para Tavily.
-            // ────────────────────────────────────────
-            console.log(`[ORGANIZADOR] Analizando intenciones con CoT...`);
-            const intencion = await analizarIntenciones(contenidoCrudo);
-            console.log(`[ORGANIZADOR] Topic: "${intencion.topicPrincipal}" | Web: ${intencion.necesitaWeb}`);
 
-            // ────────────────────────────────────────
-            // PASO 2: BUSQUEDA WEB (FIX 4 — query limpia)
-            // Usa intencion.queryWeb (5-15 palabras focalizadas) en vez de nota cruda.
-            // ────────────────────────────────────────
-            let datosWeb = 'No se requirio busqueda en internet para esta nota.';
 
-            if (intencion.necesitaWeb && intencion.queryWeb) {
-                console.log(`[ORGANIZADOR] Buscando en internet: "${intencion.queryWeb}"`);
+    // 2. EL TRABAJO PESADO (Se ejecuta sin bloquear la respuesta HTTP)
+    (async () => {
+        // ⏱️ MARCA: Inicio de todo el trabajo
+        const inicioGlobal = performance.now();
+        const procesados = [];
+        const listaConceptos = obtenerCategorias().join(', ');
+
+        try {
+            for (const archivo of archivos) {
+                const rutaVieja = path.join(inboxPath, archivo);
+                if (!fs.existsSync(rutaVieja)) continue;
+
+                // ⏱️ MARCA: Inicio de este archivo específico
+                const inicioArchivo = performance.now();
+                const contenidoCrudo = fs.readFileSync(rutaVieja, 'utf-8');
+
+                console.log(`\n${'─'.repeat(50)}`);
+                console.log(`[ORGANIZADOR] Procesando: ${archivo}`);
+
+                // PASO 1: Analizar Intenciones
+                console.log(`[ORGANIZADOR] Analizando intenciones con CoT...`);
+                let t0 = performance.now();
+                const intencion = await analizarIntenciones(contenidoCrudo);
+                console.log(`[⏱️ METRICA] CoT completado en: ${((performance.now() - t0) / 1000).toFixed(2)}s`);
+                console.log(`[ORGANIZADOR] Topic: "${intencion.topicPrincipal}" | Web: ${intencion.necesitaWeb}`);
+
+                // PASO 2: Búsqueda Web
+                let datosWeb = 'No se requirió búsqueda en internet para esta nota.';
+                let t1 = performance.now();
+                if (intencion.necesitaWeb && intencion.queryWeb) {
+                    console.log(`[ORGANIZADOR] Buscando en internet: "${intencion.queryWeb}"`);
+                    try {
+                        const web = await buscarEnWeb(intencion.queryWeb);
+                        datosWeb = web.answer ? web.answer : web.results.slice(0, 3).map(r => `[${r.title}] ${r.content}`).join('\n\n');
+                    } catch (e) {
+                        console.warn(`[ORGANIZADOR] Falló búsqueda web: ${e.message}.`);
+                    }
+                }
+                console.log(`[⏱️ METRICA] Búsqueda Web completada en: ${((performance.now() - t1) / 1000).toFixed(2)}s`);
+
+                // PASO 3: RAG de Fusión
+                console.log(`[ORGANIZADOR] Buscando candidatos de fusión (umbral alto)...`);
+                let t2 = performance.now();
+                const candidatosRaw = await buscarCandidatosFusion(contenidoCrudo, 3);
+                console.log(`[⏱️ METRICA] RAG Vectorial completado en: ${((performance.now() - t2) / 1000).toFixed(2)}s`);
+
+                // PASO 4: Verificación de Fusión
+                let t3 = performance.now();
+                const candidatosVerificados = [];
+                for (const candidato of candidatosRaw) {
+                    const aprobado = await verificarFusion(contenidoCrudo, candidato.notaCompleta, candidato.nombre);
+                    if (aprobado) candidatosVerificados.push(candidato);
+                }
+                console.log(`[⏱️ METRICA] Portero Fast completado en: ${((performance.now() - t3) / 1000).toFixed(2)}s`);
+
+                let contextoVault = 'No se encontraron notas existentes suficientemente similares. Crear archivo nuevo.';
+                if (candidatosVerificados.length > 0) {
+                    contextoVault = candidatosVerificados.map(c => 
+                        `--- RUTA EXISTENTE: ${c.ruta} (similitud: ${c.score.toFixed(2)}) ---\nExtracto: ${c.fragmento}`
+                    ).join('\n\n');
+                }
+
+                // PASO 5: Síntesis Final
+                console.log(`[ORGANIZADOR] Sintetizando nota final con el Motor Deep...`);
+                let t4 = performance.now();
+                const prompt = construirPromptConserje(contenidoCrudo, datosWeb, contextoVault, listaConceptos, intencion.topicPrincipal);
+                
+                const response = await fetch(OLLAMA_URL, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ model: OLLAMA_MODEL_DEEP, prompt: prompt, stream: false, format: 'json' })
+                });
+
+                if (!response.ok) throw new Error(`Ollama falló: ${response.status}`);
+                const data = await response.json();
+                console.log(`[⏱️ METRICA] Síntesis Profunda completada en: ${((performance.now() - t4) / 1000).toFixed(2)}s`);
+
+                let estructura;
                 try {
-                    const web = await buscarEnWeb(intencion.queryWeb);
-                    datosWeb = web.answer
-                        ? web.answer
-                        : web.results.slice(0, 3).map(r => `[${r.title}] ${r.content}`).join('\n\n');
-                    console.log(`[ORGANIZADOR] Datos web obtenidos.`);
-                } catch (e) {
-                    console.warn(`[ORGANIZADOR] Fallo busqueda web: ${e.message}. Continuando sin web.`);
+                    estructura = JSON.parse(data.response);
+                } catch (parseErr) {
+                    const match = data.response.match(/\{[\s\S]*\}/);
+                    if (match) estructura = JSON.parse(match[0]);
+                    else throw new Error(`No se pudo parsear JSON del modelo.`);
                 }
-            } else if (intencion.necesitaWeb && !intencion.queryWeb) {
-                console.warn(`[ORGANIZADOR] necesitaWeb=true pero queryWeb vacia. Saltando busqueda.`);
-            }
 
-            // ────────────────────────────────────────
-            // PASO 3: RAG DE FUSION (FIX 3 — umbral alto)
-            // buscarCandidatosFusion() usa umbral 0.78 (vs 0.5 del RAG informativo).
-            // Solo devuelve candidatos con alta certeza semantica.
-            // ────────────────────────────────────────
-            console.log(`[ORGANIZADOR] Buscando candidatos de fusion (umbral alto)...`);
-            const candidatosRaw = await buscarCandidatosFusion(contenidoCrudo, 3);
-
-            // ────────────────────────────────────────
-            // PASO 4: VERIFICACION DE FUSION (FIX 3 — segunda pasada)
-            // Para cada candidato, verifica identidad tematica con modelo fast.
-            // RS-232 vs SSH → rechazo. Quickshifter vs Gixxer → aprobado.
-            // ────────────────────────────────────────
-            const candidatosVerificados = [];
-
-            for (const candidato of candidatosRaw) {
-                const aprobado = await verificarFusion(
-                    contenidoCrudo,
-                    candidato.notaCompleta,
-                    candidato.nombre
-                );
-                if (aprobado) candidatosVerificados.push(candidato);
-            }
-
-            let contextoVault = 'No se encontraron notas existentes suficientemente similares. Crear archivo nuevo.';
-            if (candidatosVerificados.length > 0) {
-                contextoVault = candidatosVerificados.map(c =>
-                    `--- RUTA EXISTENTE: ${c.ruta} (similitud: ${c.score.toFixed(2)}) ---\nExtracto: ${c.fragmento}`
-                ).join('\n\n');
-            }
-
-            // ────────────────────────────────────────
-            // PASO 5: SINTESIS FINAL (FIX 2 — preservacion de jerga)
-            // El prompt incluye seccion PRESERVACION con few-shot de jerga colombiana.
-            // ────────────────────────────────────────
-            console.log(`[ORGANIZADOR] Sintetizando nota final con llama3.1...`);
-
-            const prompt = construirPromptConserje(
-                contenidoCrudo,
-                datosWeb,
-                contextoVault,
-                listaConceptos,
-                intencion.topicPrincipal
-            );
-
-            const response = await fetch(OLLAMA_URL, {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({
-                    model:  OLLAMA_MODEL_DEEP,
-                    prompt: prompt,
-                    stream: false,
-                    format: 'json'
-                })
-            });
-
-            if (!response.ok) throw new Error(`Ollama fallo: ${response.status}`);
-            const data = await response.json();
-
-            let estructura;
-            try {
-                estructura = JSON.parse(data.response);
-            } catch (parseErr) {
-                // Fallback: extraer JSON si el modelo metio texto antes
-                const match = data.response.match(/\{[\s\S]*\}/);
-                if (match) {
-                    estructura = JSON.parse(match[0]);
-                } else {
-                    throw new Error(`No se pudo parsear JSON del modelo: ${data.response.substring(0, 200)}`);
+                // PASO 6: Validación y Ejecución Espacial
+                if (!estructura.ruta_destino.endsWith('.md')) estructura.ruta_destino += '.md';
+                if (estructura.accion === 'CREAR' && !estructura.ruta_destino.startsWith('Boveda/')) {
+                    estructura.ruta_destino = path.join('Boveda', estructura.ruta_destino);
                 }
-            }
 
-            // ────────────────────────────────────────
-            // PASO 6: VALIDACION Y EJECUCION
-            // ────────────────────────────────────────
-            if (!estructura.ruta_destino.endsWith('.md')) {
-                estructura.ruta_destino += '.md';
-            }
+                const rutaAbsoluta = path.join(VAULT_PATH, estructura.ruta_destino);
+                const carpetaDestino = path.dirname(rutaAbsoluta);
+                if (!fs.existsSync(carpetaDestino)) fs.mkdirSync(carpetaDestino, { recursive: true });
 
-            const rutaAbsoluta    = path.join(VAULT_PATH, estructura.ruta_destino);
-            const carpetaDestino  = path.dirname(rutaAbsoluta);
-            if (!fs.existsSync(carpetaDestino)) {
-                fs.mkdirSync(carpetaDestino, { recursive: true });
-            }
+                const timestamp = obtenerTimestamp();
 
-            const timestamp = obtenerTimestamp();
-
-            if (estructura.accion === 'FUSIONAR' && fs.existsSync(rutaAbsoluta)) {
-                console.log(`[ORGANIZADOR] FUSION → ${estructura.ruta_destino}`);
-                const razonamiento = estructura.razonamiento ? `\n*Razonamiento: ${estructura.razonamiento}*` : '';
-                const bloque = `\n\n---\n### Actualizacion: ${timestamp}\n*Procesado desde Inbox*${razonamiento}\n\n${estructura.contenido_md}\n`;
-                fs.appendFileSync(rutaAbsoluta, bloque);
-            } else {
-                // Si el modelo dijo FUSIONAR pero el archivo no existe, crear igualmente
-                if (estructura.accion === 'FUSIONAR') {
-                    console.warn(`[ORGANIZADOR] Ruta de fusion no existe. Creando nuevo archivo.`);
+                if (estructura.accion === 'FUSIONAR' && fs.existsSync(rutaAbsoluta)) {
+                    console.log(`[ORGANIZADOR] FUSIÓN → ${estructura.ruta_destino}`);
+                    const razonamiento = estructura.razonamiento ? `\n*Razonamiento: ${estructura.razonamiento}*` : '';
+                    const bloque = `\n\n---\n### Actualización: ${timestamp}\n*Procesado desde Inbox*${razonamiento}\n\n${estructura.contenido_md}\n`;
+                    fs.appendFileSync(rutaAbsoluta, bloque);
                 } else {
                     console.log(`[ORGANIZADOR] CREAR → ${estructura.ruta_destino}`);
+                    const notaFinal = [
+                        '---', `tipo: nota_procesada`, `creado: ${timestamp}`, `fuente: Agente_Organizador_V5`, `topic: ${intencion.topicPrincipal}`, '---',
+                        `# ${estructura.tema_central}`, '', estructura.contenido_md
+                    ].join('\n');
+                    fs.writeFileSync(rutaAbsoluta, notaFinal);
                 }
 
-                const notaFinal = [
-                    '---',
-                    `tipo: nota_procesada`,
-                    `creado: ${timestamp}`,
-                    `fuente: Agente_Organizador_V5`,
-                    `topic: ${intencion.topicPrincipal}`,
-                    '---',
-                    `# ${estructura.tema_central}`,
-                    '',
-                    estructura.contenido_md
-                ].join('\n');
-
-                fs.writeFileSync(rutaAbsoluta, notaFinal);
+                fs.unlinkSync(rutaVieja);
+                console.log(`[⏱️ METRICA TOTAL] Archivo "${archivo}" procesado en: ${((performance.now() - inicioArchivo) / 1000).toFixed(2)}s`);
             }
 
-            // Eliminar original del Inbox
-            fs.unlinkSync(rutaVieja);
-            console.log(`[ORGANIZADOR] Borrador eliminado: ${archivo}`);
+            console.log(`\n==================================================`);
+            console.log(`[✅ ÉXITO] ¡Inbox limpiado! Tiempo total en background: ${((performance.now() - inicioGlobal) / 1000 / 60).toFixed(2)} minutos`);
+            console.log(`==================================================\n`);
 
-            procesados.push({
-                original:      archivo,
-                tema:          estructura.tema_central,
-                accion:        estructura.accion,
-                ruta:          estructura.ruta_destino,
-                razonamiento:  estructura.razonamiento || '',
-                busco_en_web:  intencion.necesitaWeb,
-                query_usada:   intencion.queryWeb || null,
-                candidatos_rag: candidatosRaw.length,
-                candidatos_verificados: candidatosVerificados.length
-            });
+        } catch (err) {
+            console.error(`\n[ORGANIZADOR ERROR SEGUNDO PLANO] Fallo fatal procesando el Inbox: ${err.message}`);
+        } finally {
+            procesandoInbox = false;
         }
-
-        res.status(200).json({
-            mensaje:         'Inbox procesado con exito.',
-            notas_procesadas: procesados
-        });
-
-    } catch (err) {
-        console.error(`[ORGANIZADOR ERROR] ${err.message}`);
-        res.status(500).json({ error: 'Fallo al procesar el Inbox.', detalle: err.message });
-    }
+    })(); // FIN DE LA FUNCIÓN ASÍNCRONA AISLADA
 }
 
 module.exports = limpiarInbox;

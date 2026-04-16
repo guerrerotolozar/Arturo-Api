@@ -74,37 +74,25 @@ async function generarEmbedding(texto) {
  * @returns {Promise<{necesitaWeb: boolean, queryWeb: string, topicPrincipal: string}>}
  */
 async function analizarIntenciones(textoNota) {
-    const prompt = `Eres un analista de notas personales. Analiza la nota y extrae su intencion. Razona antes de responder.
+    const prompt = `Eres un analista de notas personales.
+Analiza la nota y extrae su intencion estrictamente en formato JSON.
 
 ---EJEMPLOS---
-
 NOTA: "Instalar quickshifter en la Gixxer 250 SF. Averiguar si conviene importarlo desde AliExpress o comprarlo en Bogota. Ver precios."
-RAZONAMIENTO: La nota dice "averiguar" y "ver precios" — requiere datos externos actuales. El topic es el accesorio especifico, no la moto en general. La query debe ser concreta para busqueda web.
-RESULTADO: {"necesitaWeb": true, "queryWeb": "quickshifter Suzuki Gixxer 250 precio Colombia", "topicPrincipal": "quickshifter Gixxer 250 SF"}
+RESULTADO: {"razonamiento": "La nota dice 'averiguar' y 'ver precios', requiere datos externos.", "necesitaWeb": true, "queryWeb": "quickshifter Suzuki Gixxer 250 precio Colombia", "topicPrincipal": "quickshifter Gixxer 250 SF"}
 
-NOTA: "Recordar activar el cron de backup del vault a las 3AM. El script bash debe tener permisos 755."
-RAZONAMIENTO: Tarea tecnica interna sobre el propio servidor. No investiga nada externo. No necesita internet.
-RESULTADO: {"necesitaWeb": false, "queryWeb": "", "topicPrincipal": "backup vault cron Linux"}
+NOTA: "Recordar activar el cron de backup del vault a las 3AM."
+RESULTADO: {"razonamiento": "Tarea tecnica interna del servidor, no investiga nada.", "necesitaWeb": false, "queryWeb": "", "topicPrincipal": "backup vault cron Linux"}
 
-NOTA: "Bascula Dibal Serie 500 para la carniceria. Comparar con proveedores chinos. Cuanto cuesta el arancel en Colombia?"
-RAZONAMIENTO: "Comparar con proveedores" y "cuanto cuesta el arancel" son preguntas que requieren datos externos actuales. El arancel puede cambiar. Necesita web.
-RESULTADO: {"necesitaWeb": true, "queryWeb": "importacion bascula electronica arancel Colombia", "topicPrincipal": "importacion Básculas Dibal Colombia"}
+NOTA: "Bascula Dibal Serie 500 para la carniceria. Cuanto cuesta el arancel en Colombia?"
+RESULTADO: {"razonamiento": "Pregunta por el costo del arancel, dato externo cambiante.", "necesitaWeb": true, "queryWeb": "importacion bascula electronica arancel Colombia", "topicPrincipal": "importacion Básculas Dibal Colombia"}
 
-NOTA: "Hoy hable con papa sobre el salario de administrador de la salsamentaria. Quedamos en 200 lucas mensuales. Documentar el acuerdo."
-RAZONAMIENTO: Registro de acuerdo personal ya tomado. No hay nada que investigar en internet. Informacion interna.
-RESULTADO: {"necesitaWeb": false, "queryWeb": "", "topicPrincipal": "acuerdo salario salsamentaria"}
-
-NOTA: "Conexion por cable RS-232 entre el POS y la impresora. Ver si hay adaptador USB-serial barato."
-RAZONAMIENTO: "Ver si hay adaptador" implica buscar en internet productos disponibles y precios. Necesita web.
-RESULTADO: {"necesitaWeb": true, "queryWeb": "adaptador USB serial RS-232 precio Colombia", "topicPrincipal": "RS-232 adaptador USB POS"}
-
+NOTA: "Conexion por cable RS-232 entre el POS y la impresora. Revisar urgente si soporta o si toca digital manual."
+RESULTADO: {"razonamiento": "Requiere revisar especificaciones tecnicas (si soporta o no un protocolo) de un equipo externo.", "necesitaWeb": true, "queryWeb": "báscula Dibal software inventario soporte RS-232", "topicPrincipal": "Soporte RS-232 Básculas Dibal"}
 ---FIN EJEMPLOS---
 
-Ahora analiza esta nota. Primero escribe tu RAZONAMIENTO breve, luego el RESULTADO en JSON valido.
-
-NOTA: "${textoNota.replace(/"/g, "'").substring(0, 600)}"
-
-RAZONAMIENTO:`;
+Ahora analiza esta nota. Responde UNICAMENTE con un JSON valido siguiendo el esquema de los ejemplos.
+NOTA: "${textoNota.replace(/"/g, "'").substring(0, 600)}"`;
 
     try {
         const respuestaRaw = await llamarOllama(prompt, OLLAMA_MODEL_DEEP, 'json');

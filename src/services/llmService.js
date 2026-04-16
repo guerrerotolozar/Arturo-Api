@@ -1,6 +1,6 @@
 /**
  * LLMService — Comunicación exclusiva con Ollama.
- * Dual Motor: qwen2.5:1.5b (Fast) + llama3.1:8b (Deep).
+ * Dual Motor: qwen2.5:1.5b (Fast) + qwen2.5:14b:8b (Deep).
  *
  * CHANGELOG v3:
  *   - analizarIntenciones()  NUEVO. CoT + Few-Shot para notas crudas del Inbox.
@@ -27,9 +27,9 @@ async function llamarOllama(prompt, modelo, formato = null) {
     const body = { model: modelo, prompt, stream: false };
     if (formato) body.format = formato;
     const response = await fetch(OLLAMA_URL, {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body)
+        body: JSON.stringify(body)
     });
     if (!response.ok) throw new Error(`Ollama respondio con status ${response.status}`);
     const data = await response.json();
@@ -39,9 +39,9 @@ async function llamarOllama(prompt, modelo, formato = null) {
 async function generarEmbedding(texto) {
     const urlEmbed = OLLAMA_URL.replace('/generate', '/embeddings');
     const response = await fetch(urlEmbed, {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ model: OLLAMA_MODEL_EMBED, prompt: texto })
+        body: JSON.stringify({ model: OLLAMA_MODEL_EMBED, prompt: texto })
     });
     if (!response.ok) throw new Error(`Fallo al generar embedding: ${response.status}`);
     const data = await response.json();
@@ -100,8 +100,8 @@ NOTA: "${textoNota.replace(/"/g, "'").substring(0, 600)}"`;
         if (!jsonMatch) throw new Error('No se encontro JSON en la respuesta');
         const resultado = JSON.parse(jsonMatch[0]);
         return {
-            necesitaWeb:    Boolean(resultado.necesitaWeb),
-            queryWeb:       (resultado.queryWeb || '').trim(),
+            necesitaWeb: Boolean(resultado.necesitaWeb),
+            queryWeb: (resultado.queryWeb || '').trim(),
             topicPrincipal: (resultado.topicPrincipal || 'tema sin clasificar').trim()
         };
     } catch (err) {
@@ -218,7 +218,7 @@ function esPreguntaSimple(pregunta) {
     const texto = pregunta.trim();
     if (PATRONES_PREGUNTA_SIMPLE.some(p => p.test(texto))) return true;
     const palabras = texto.split(/\s+/).filter(Boolean);
-    const triggersProfundos = ['explica','explicame','como funciona','por que','diferencia entre','ventaja','describe','analiza','resume'];
+    const triggersProfundos = ['explica', 'explicame', 'como funciona', 'por que', 'diferencia entre', 'ventaja', 'describe', 'analiza', 'resume'];
     if (palabras.length <= 7 && !triggersProfundos.some(p => texto.toLowerCase().includes(p))) return true;
     return false;
 }
@@ -261,7 +261,7 @@ async function clasificarIdea(idea, categorias) {
 
 async function consultarIA(pregunta, fragmentosVault, datosWeb, fechaHora) {
     const bloqueVault = fragmentosVault.length > 0
-        ? `\n=== VAULT ===\n${fragmentosVault.map((f,i) => `[${i+1}] ${f.fuente}\n${f.texto}`).join('\n\n')}\n=== FIN VAULT ===`
+        ? `\n=== VAULT ===\n${fragmentosVault.map((f, i) => `[${i + 1}] ${f.fuente}\n${f.texto}`).join('\n\n')}\n=== FIN VAULT ===`
         : '';
     const bloqueWeb = datosWeb
         ? `\n=== INTERNET ===\n${datosWeb.answer ? `Resumen: ${datosWeb.answer}\n` : ''}${datosWeb.results.map(r => `${r.title}\n${r.content}`).join('\n')}\n=== FIN INTERNET ===`
@@ -300,7 +300,7 @@ module.exports = {
     consultarIA,
     consultarIAFast,
     orquestarTareas,
-    _esPreguntaSimple:         esPreguntaSimple,
-    _SENALES_WEB_EXPLICITAS:   SENALES_WEB_EXPLICITAS,
+    _esPreguntaSimple: esPreguntaSimple,
+    _SENALES_WEB_EXPLICITAS: SENALES_WEB_EXPLICITAS,
     _PATRONES_PREGUNTA_SIMPLE: PATRONES_PREGUNTA_SIMPLE
 };

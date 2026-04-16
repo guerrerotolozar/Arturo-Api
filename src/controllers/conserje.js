@@ -1,7 +1,7 @@
 /**
  * Controlador del Agente Organizador (V5 — Arquitectura Auditada).
  * Ruta: POST /IA/limpiar-inbox
- * Motor: llama3.1:8b (Deep) + RAG Vectorial + Tavily + verificacion de fusion
+ * Motor: qwen2.5:14b:8b (Deep) + RAG Vectorial + Tavily + verificacion de fusion
  *
  * CAMBIOS vs V4:
  *
@@ -29,15 +29,15 @@
  *    Ahora: buscarEnWeb(queryWeb) → query de 5-15 palabras extraida por el LLM.
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
-const { VAULT_PATH, OLLAMA_URL, OLLAMA_MODEL_DEEP, PERFIL_RONALD }  = require('../config/env');
-const { obtenerTimestamp }                                          = require('../utils/dateUtils');
-const { buscarCandidatosFusion, obtenerCategorias }                 = require('../services/vaultService');
-const { analizarIntenciones, verificarFusion }                      = require('../services/llmService');
-const { buscarEnWeb }                                               = require('../services/searchService');
-const { performance }                                               = require('perf_hooks');
+const { VAULT_PATH, OLLAMA_URL, OLLAMA_MODEL_DEEP, PERFIL_RONALD } = require('../config/env');
+const { obtenerTimestamp } = require('../utils/dateUtils');
+const { buscarCandidatosFusion, obtenerCategorias } = require('../services/vaultService');
+const { analizarIntenciones, verificarFusion } = require('../services/llmService');
+const { buscarEnWeb } = require('../services/searchService');
+const { performance } = require('perf_hooks');
 
 // Candado global para evitar colapsar la CPU con dobles peticiones
 let procesandoInbox = false;
@@ -125,17 +125,17 @@ async function limpiarInbox(req, res) {
 
     // Si Arturo ya está trabajando, rebota la petición
     if (procesandoInbox) {
-        return res.status(429).json({ 
-            mensaje: "Arturo ya está procesando el Inbox. Por favor, espere a que termine." 
+        return res.status(429).json({
+            mensaje: "Arturo ya está procesando el Inbox. Por favor, espere a que termine."
         });
     }
-    
+
     if (!fs.existsSync(inboxPath)) {
         return res.status(200).json({ mensaje: 'El Inbox está vacío o no existe.' });
     }
 
     const archivos = fs.readdirSync(inboxPath).filter(f => f.endsWith('.md'));
-    
+
     if (archivos.length === 0) {
         return res.status(200).json({ mensaje: 'No hay notas pendientes en el Inbox.' });
     }
@@ -211,7 +211,7 @@ async function limpiarInbox(req, res) {
 
                 let contextoVault = 'No se encontraron notas existentes suficientemente similares. Crear archivo nuevo.';
                 if (candidatosVerificados.length > 0) {
-                    contextoVault = candidatosVerificados.map(c => 
+                    contextoVault = candidatosVerificados.map(c =>
                         `--- RUTA EXISTENTE: ${c.ruta} (similitud: ${c.score.toFixed(2)}) ---\nExtracto: ${c.fragmento}`
                     ).join('\n\n');
                 }
@@ -220,11 +220,11 @@ async function limpiarInbox(req, res) {
                 console.log(`[ORGANIZADOR] Sintetizando nota final con el Motor Deep...`);
                 let t4 = performance.now();
                 const prompt = construirPromptConserje(contenidoCrudo, datosWeb, contextoVault, listaConceptos, intencion.topicPrincipal);
-                
+
                 const response = await fetch(OLLAMA_URL, {
-                    method:  'POST',
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body:    JSON.stringify({ model: OLLAMA_MODEL_DEEP, prompt: prompt, stream: false, format: 'json' })
+                    body: JSON.stringify({ model: OLLAMA_MODEL_DEEP, prompt: prompt, stream: false, format: 'json' })
                 });
 
                 if (!response.ok) throw new Error(`Ollama falló: ${response.status}`);

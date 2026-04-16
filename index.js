@@ -35,7 +35,7 @@ app.get('/api/status', obtenerStatus);
 // Webhook del Segundo Cerebro — Motor FAST (qwen2.5:1.5B)
 app.post('/webhook/cerebro', webhookCerebro);
 
-// IA — Consulta RAG + Web híbrida — Motor DEEP (llama3.1)
+// IA — Consulta RAG + Web híbrida — Motor DEEP (qwen2.5:14b)
 app.post('/IA/consultar', consultaIA);
 
 // IA FAST — Consultas rápidas sin RAG — Motor FAST (qwen2.5:1.5B)
@@ -44,7 +44,7 @@ app.post('/IA/fast', consultaIAFast);
 // IA NOTA — Crea notas estructuradas en el vault
 app.post('/IA/nota', crearNota);
 
-// IA ORGANIZADOR — Limpia y estructura el Inbox — Motor DEEP (llama3.1)
+// IA ORGANIZADOR — Limpia y estructura el Inbox — Motor DEEP (qwen2.5:14b)
 app.post('/IA/limpiar-inbox', limpiarInbox);
 
 // Grafo 3D — JSON de nodos y enlaces
@@ -61,7 +61,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`  Arturo operando en http://192.168.1.8:${PORT}`);
     console.log(`══════════════════════════════════════`);
     console.log(`  POST /webhook/cerebro      → Ingestión de ideas`);
-    console.log(`  POST /IA/consultar     → RAG + Web (llama3.1)`);
+    console.log(`  POST /IA/consultar     → RAG + Web (qwen2.5:14b)`);
     console.log(`  POST //fast          → Consulta rápida (qwen2.5:1.5B)`);
     console.log(`  POST /IA/nota          → Crear nota estructurada`);
     console.log(`  GET  /api/grafo            → Grafo 3D JSON`);

@@ -1,14 +1,16 @@
 /**
- * Controlador del Agente Organizador (V3 - Memoria Activa).
+ * Controlador del Agente Organizador (V4 Definitiva - Erudito).
  * Ruta: POST /IA/limpiar-inbox
- * Motor: llama3.1 (DEEP) + RAG Vectorial Previo
+ * Motor: llama3.1 (DEEP) + RAG Vectorial + Web Search + Enlazado Sináptico
  */
 
 const fs = require('fs');
 const path = require('path');
 const { VAULT_PATH, OLLAMA_URL, OLLAMA_MODEL_DEEP, PERFIL_RONALD } = require('../config/env');
 const { obtenerTimestamp } = require('../utils/dateUtils');
-const { buscarContexto } = require('../services/vaultService');
+const { buscarContexto, obtenerCategorias } = require('../services/vaultService');
+const { necesitaInternet } = require('../services/llmService');
+const { buscarEnWeb } = require('../services/searchService');
 
 async function limpiarInbox(req, res) {
     const inboxPath = path.join(VAULT_PATH, 'Inbox');
@@ -22,22 +24,43 @@ async function limpiarInbox(req, res) {
         return res.status(200).json({ mensaje: "No hay notas pendientes por limpiar en el Inbox." });
     }
 
-    console.log(`\n[ORGANIZADOR] Procesando ${archivos.length} notas con Memoria Activa...`);
+    console.log(`\n[ORGANIZADOR V4] Despertando al Agente Erudito para procesar ${archivos.length} notas...`);
     let procesados = [];
+
+    // Obtenemos todos los nombres de las notas para forzar los enlaces [[ ]]
+    const listaConceptos = obtenerCategorias().join(', ');
 
     try {
         for (const archivo of archivos) {
             const rutaVieja = path.join(inboxPath, archivo);
             const contenidoCrudo = fs.readFileSync(rutaVieja, 'utf-8');
 
+            console.log(`\n--------------------------------------------------`);
             console.log(`[ORGANIZADOR] Analizando borrador: ${archivo}`);
 
-            // 1. RAG PRIMERO: Buscar si hay contexto en la bóveda que se parezca a la nota cruda
+            // 1. INVESTIGACIÓN PROACTIVA (Tavily)
+            let datosWeb = "No se requirió búsqueda en internet.";
+            const quiereWeb = await necesitaInternet(contenidoCrudo);
+            
+            if (quiereWeb) {
+                console.log(`[ORGANIZADOR] Detecté dudas en la nota. Buscando en internet...`);
+                try {
+                    const web = await buscarEnWeb(contenidoCrudo);
+                    datosWeb = web.answer ? web.answer : web.results.map(r => r.content).join('\n\n');
+                    console.log(`[ORGANIZADOR] Datos web obtenidos exitosamente.`);
+                } catch (e) {
+                    console.warn(`[ORGANIZADOR] Falló la búsqueda web: ${e.message}. Continuando a ciegas.`);
+                }
+            } else {
+                console.log(`[ORGANIZADOR] No necesita internet. Avanzando con conocimiento local.`);
+            }
+
+            // 2. RAG INVERTIDO (Memoria Activa)
+            console.log(`[ORGANIZADOR] Buscando dónde encaja esto en la Bóveda...`);
             const similitudes = await buscarContexto(contenidoCrudo, 3);
             
             let contextoVault = "No se encontraron notas previas muy relacionadas.";
             if (similitudes.length > 0) {
-                // Le pre-digerimos las rutas a Llama para que no invente carpetas
                 contextoVault = similitudes.map(s => {
                     const rutaMatch = s.fuente.match(/\((.*?)\)$/);
                     const rutaRelativa = rutaMatch ? rutaMatch[1] : s.fuente;
@@ -45,9 +68,19 @@ async function limpiarInbox(req, res) {
                 }).join('\n\n');
             }
 
+            // 3. LLAMA 3.1 SINTETIZA (Con esteroides)
+            console.log(`[ORGANIZADOR] Llama 3.1 redactando respuesta final...`);
             const prompt = `Eres el Agente Organizador del Segundo Cerebro de Ronald.
-Tu tarea es leer una nota cruda del Inbox, revisar si pertenece a algún archivo que ya existe en la bóveda, y estructurarla.
+Tu tarea es leer una nota cruda del Inbox, investigarla con datos de internet si los hay, revisar si pertenece a algún archivo que ya existe en la bóveda, y estructurarla con enlaces internos.
 ${PERFIL_RONALD}
+
+=== LISTA DE CONCEPTOS EXISTENTES EN LA BÓVEDA (¡MUY IMPORTANTE!) ===
+${listaConceptos}
+*REGLA DE SINAPSIS:* Si mencionas alguna de estas entidades en tu redacción, OBLIGATORIAMENTE enciérrala en corchetes dobles, ejemplo: [[Gixxer 250 SF]] o [[Básculas Dibal]].
+
+=== DATOS RECIENTES DE INTERNET ===
+${datosWeb}
+*REGLA DE DATOS:* Si hay datos útiles aquí (precios, compatibilidades), úsalos para enriquecer la nota.
 
 === CONTEXTO EXISTENTE EN LA BÓVEDA ===
 ${contextoVault}
@@ -56,20 +89,18 @@ ${contextoVault}
 """${contenidoCrudo}"""
 
 === REGLAS DE DECISIÓN ESTRICTAS ===
-1. IDENTIDAD: Si Ronald habla de "la moto que quiero" o "la moto", revisa el contexto para deducir de qué modelo habla y úsalo en tu redacción. Si habla de cables y carnicería, verifica si encaja en los archivos de básculas.
-2. FUSIÓN: Si el tema encaja claramente en una de las "RUTAS EXISTENTES" del contexto, elige ACCIÓN: "FUSIONAR" y pon esa ruta EXACTA en "ruta_destino".
-3. CREACIÓN: Si es un tema nuevo, elige ACCIÓN: "CREAR". Inventa una ruta_destino CORTA (MÁXIMO 2 niveles de carpetas, ej. "Proyectos/Carniceria"). PROHIBIDO crear rutas largas.
-4. FORMATO: Redacta el "contenido_md" de forma profesional, directa y proactiva, usando viñetas.
+1. FUSIÓN: Si el tema encaja claramente en una de las "RUTAS EXISTENTES" del contexto (ej. es sobre la misma moto o el mismo negocio), elige ACCIÓN: "FUSIONAR" y pon esa ruta EXACTA en "ruta_destino".
+2. CREACIÓN: Si es un tema nuevo, elige ACCIÓN: "CREAR". Inventa una ruta_destino CORTA (MÁXIMO 2 niveles, ej. "Proyectos/Carniceria"). PROHIBIDO crear rutas largas.
+3. FORMATO: Redacta el "contenido_md" de forma técnica y proactiva. Agrega los datos de internet si aplicaba. USA LOS ENLACES [[ ]].
 
 Responde ÚNICAMENTE con un JSON válido con esta estructura:
 {
   "accion": "FUSIONAR" o "CREAR",
-  "ruta_destino": "Ruta del archivo (existente o nueva). Obligatorio que termine en .md",
+  "ruta_destino": "Ruta del archivo. Obligatorio que termine en .md",
   "tema_central": "Título corto y descriptivo",
-  "contenido_md": "El contenido mejorado y estructurado"
+  "contenido_md": "El contenido mejorado, con datos web (si hay) y enlaces [[Concepto]]"
 }`;
 
-            // 2. LLAMA 3.1 DECIDE CON TODO EL CONTEXTO EN LA MESA
             const response = await fetch(OLLAMA_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -87,7 +118,6 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
 
             const timestamp = obtenerTimestamp();
             
-            // Forzar que siempre termine en .md
             if (!estructura.ruta_destino.endsWith('.md')) {
                 estructura.ruta_destino += '.md';
             }
@@ -95,18 +125,17 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
             const rutaAbsoluta = path.join(VAULT_PATH, estructura.ruta_destino);
             const carpetaDestino = path.dirname(rutaAbsoluta);
             
-            // Garantizar que la carpeta exista (por si decide CREAR)
             if (!fs.existsSync(carpetaDestino)) {
                 fs.mkdirSync(carpetaDestino, { recursive: true });
             }
 
-            // 3. EJECUTAR LA ACCIÓN (Seguridad primero)
+            // 4. EJECUTAR LA MUDANZA
             if (estructura.accion === "FUSIONAR" && fs.existsSync(rutaAbsoluta)) {
-                console.log(`[ORGANIZADOR] Decisión Inteligente: FUSIONANDO con ${estructura.ruta_destino}`);
+                console.log(`[ORGANIZADOR] Éxito: FUSIONANDO con ${estructura.ruta_destino}`);
                 const bloqueAnexo = `\n\n---\n### 📌 Actualización: ${timestamp}\n*Procesado desde Inbox*\n\n${estructura.contenido_md}\n`;
                 fs.appendFileSync(rutaAbsoluta, bloqueAnexo);
             } else {
-                console.log(`[ORGANIZADOR] Decisión Inteligente: CREANDO nuevo archivo en ${estructura.ruta_destino}`);
+                console.log(`[ORGANIZADOR] Éxito: CREANDO nuevo archivo en ${estructura.ruta_destino}`);
                 const notaFinal = [
                     '---',
                     `tipo: nota_procesada`,
@@ -120,7 +149,6 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
                 fs.writeFileSync(rutaAbsoluta, notaFinal);
             }
 
-            // Destruir el borrador feo
             fs.unlinkSync(rutaVieja);
             
             procesados.push({

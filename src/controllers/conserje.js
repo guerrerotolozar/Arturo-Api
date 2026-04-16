@@ -1,14 +1,14 @@
 /**
- * Controlador del Agente Organizador (V2 - Actualización Inteligente).
+ * Controlador del Agente Organizador (V3 - Memoria Activa).
  * Ruta: POST /IA/limpiar-inbox
- * Motor: llama3.1 (DEEP) + RAG Vectorial (nomic-embed-text)
+ * Motor: llama3.1 (DEEP) + RAG Vectorial Previo
  */
 
 const fs = require('fs');
 const path = require('path');
 const { VAULT_PATH, OLLAMA_URL, OLLAMA_MODEL_DEEP, PERFIL_RONALD } = require('../config/env');
 const { obtenerTimestamp } = require('../utils/dateUtils');
-const { buscarContexto } = require('../services/vaultService'); // <-- IMPORTAMOS EL CEREBRO VECTORIAL
+const { buscarContexto } = require('../services/vaultService');
 
 async function limpiarInbox(req, res) {
     const inboxPath = path.join(VAULT_PATH, 'Inbox');
@@ -22,7 +22,7 @@ async function limpiarInbox(req, res) {
         return res.status(200).json({ mensaje: "No hay notas pendientes por limpiar en el Inbox." });
     }
 
-    console.log(`\n[ORGANIZADOR] Encontré ${archivos.length} notas en el Inbox. Empezando limpieza y fusión profunda...`);
+    console.log(`\n[ORGANIZADOR] Procesando ${archivos.length} notas con Memoria Activa...`);
     let procesados = [];
 
     try {
@@ -30,25 +30,46 @@ async function limpiarInbox(req, res) {
             const rutaVieja = path.join(inboxPath, archivo);
             const contenidoCrudo = fs.readFileSync(rutaVieja, 'utf-8');
 
-            console.log(`[ORGANIZADOR] Analizando: ${archivo}`);
+            console.log(`[ORGANIZADOR] Analizando borrador: ${archivo}`);
+
+            // 1. RAG PRIMERO: Buscar si hay contexto en la bóveda que se parezca a la nota cruda
+            const similitudes = await buscarContexto(contenidoCrudo, 3);
+            
+            let contextoVault = "No se encontraron notas previas muy relacionadas.";
+            if (similitudes.length > 0) {
+                // Le pre-digerimos las rutas a Llama para que no invente carpetas
+                contextoVault = similitudes.map(s => {
+                    const rutaMatch = s.fuente.match(/\((.*?)\)$/);
+                    const rutaRelativa = rutaMatch ? rutaMatch[1] : s.fuente;
+                    return `--- RUTA EXISTENTE: ${rutaRelativa} ---\nExtracto: ${s.texto}`;
+                }).join('\n\n');
+            }
 
             const prompt = `Eres el Agente Organizador del Segundo Cerebro de Ronald.
-Tu tarea es leer una nota rápida y cruda del Inbox, darle formato profesional en Markdown, extraer conceptos clave y decidir de qué trata.
+Tu tarea es leer una nota cruda del Inbox, revisar si pertenece a algún archivo que ya existe en la bóveda, y estructurarla.
 ${PERFIL_RONALD}
 
-Nota cruda original:
-"""
-${contenidoCrudo}
-"""
+=== CONTEXTO EXISTENTE EN LA BÓVEDA ===
+${contextoVault}
 
-Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
+=== NOTA CRUDA DEL INBOX ===
+"""${contenidoCrudo}"""
+
+=== REGLAS DE DECISIÓN ESTRICTAS ===
+1. IDENTIDAD: Si Ronald habla de "la moto que quiero" o "la moto", revisa el contexto para deducir de qué modelo habla y úsalo en tu redacción. Si habla de cables y carnicería, verifica si encaja en los archivos de básculas.
+2. FUSIÓN: Si el tema encaja claramente en una de las "RUTAS EXISTENTES" del contexto, elige ACCIÓN: "FUSIONAR" y pon esa ruta EXACTA en "ruta_destino".
+3. CREACIÓN: Si es un tema nuevo, elige ACCIÓN: "CREAR". Inventa una ruta_destino CORTA (MÁXIMO 2 niveles de carpetas, ej. "Proyectos/Carniceria"). PROHIBIDO crear rutas largas.
+4. FORMATO: Redacta el "contenido_md" de forma profesional, directa y proactiva, usando viñetas.
+
+Responde ÚNICAMENTE con un JSON válido con esta estructura:
 {
-  "tema_central": "Nombre descriptivo y corto del tema (ej. Básculas Dibal, Gixxer 250 SF)",
-  "carpeta_sugerida": "Nombre de la carpeta o subcarpeta (ej. Profesional/Importaciones, VIDA/MOTO)",
-  "contenido_md": "El contenido reescrito, bien formateado, directo al grano."
+  "accion": "FUSIONAR" o "CREAR",
+  "ruta_destino": "Ruta del archivo (existente o nueva). Obligatorio que termine en .md",
+  "tema_central": "Título corto y descriptivo",
+  "contenido_md": "El contenido mejorado y estructurado"
 }`;
 
-            // 1. LLAMA 3.1 ESTRUCTURA LA NOTA
+            // 2. LLAMA 3.1 DECIDE CON TODO EL CONTEXTO EN LA MESA
             const response = await fetch(OLLAMA_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -64,48 +85,28 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
             const data = await response.json();
             const estructura = JSON.parse(data.response);
 
-            // 2. BÚSQUEDA INTELIGENTE (RAG VECTORIAL)
-            console.log(`[ORGANIZADOR] Verificando si ya existe conocimiento sobre: "${estructura.tema_central}"...`);
-            const similitudes = await buscarContexto(estructura.tema_central, 3);
+            const timestamp = obtenerTimestamp();
             
-            let anexado = false;
-            let rutaDestinoFinal = "";
-
-            // UMBRAL DE SIMILITUD: 0.80 (80% de coincidencia semántica)
-            if (similitudes.length > 0 && similitudes[0].score > 0.80) {
-                const mejorMatch = similitudes[0];
-                
-                // Extraer la ruta real del string "NombreNota (ruta/absoluta.md)"
-                const rutaMatch = mejorMatch.fuente.match(/\((.*?)\)$/);
-                
-                if (rutaMatch) {
-                    const rutaRelativa = rutaMatch[1];
-                    const rutaAbsoluta = path.join(VAULT_PATH, rutaRelativa);
-
-                    console.log(`[ORGANIZADOR] ¡Match semántico encontrado (${Math.round(mejorMatch.score * 100)}%)! FUSIONANDO con: ${rutaRelativa}`);
-
-                    const timestamp = obtenerTimestamp();
-                    // Bloque de adición seguro (nunca sobreescribe)
-                    const bloqueAnexo = `\n\n---\n### 📌 Actualización: ${timestamp}\n*Procesado desde Inbox*\n\n${estructura.contenido_md}\n`;
-
-                    fs.appendFileSync(rutaAbsoluta, bloqueAnexo);
-                    fs.unlinkSync(rutaVieja); // Destruir el borrador del Inbox
-
-                    rutaDestinoFinal = rutaRelativa;
-                    anexado = true;
-                }
+            // Forzar que siempre termine en .md
+            if (!estructura.ruta_destino.endsWith('.md')) {
+                estructura.ruta_destino += '.md';
+            }
+            
+            const rutaAbsoluta = path.join(VAULT_PATH, estructura.ruta_destino);
+            const carpetaDestino = path.dirname(rutaAbsoluta);
+            
+            // Garantizar que la carpeta exista (por si decide CREAR)
+            if (!fs.existsSync(carpetaDestino)) {
+                fs.mkdirSync(carpetaDestino, { recursive: true });
             }
 
-            // 3. SI NO EXISTE, SE CREA DESDE CERO
-            if (!anexado) {
-                console.log(`[ORGANIZADOR] Tema nuevo. Creando archivo desde cero...`);
-                const carpetaDestino = path.join(VAULT_PATH, estructura.carpeta_sugerida);
-                if (!fs.existsSync(carpetaDestino)) fs.mkdirSync(carpetaDestino, { recursive: true });
-
-                const nombreArchivoNuevo = estructura.tema_central.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s_-]/g, '').trim().replace(/\s+/g, '_') + '.md';
-                const rutaNueva = path.join(carpetaDestino, nombreArchivoNuevo);
-
-                const timestamp = obtenerTimestamp();
+            // 3. EJECUTAR LA ACCIÓN (Seguridad primero)
+            if (estructura.accion === "FUSIONAR" && fs.existsSync(rutaAbsoluta)) {
+                console.log(`[ORGANIZADOR] Decisión Inteligente: FUSIONANDO con ${estructura.ruta_destino}`);
+                const bloqueAnexo = `\n\n---\n### 📌 Actualización: ${timestamp}\n*Procesado desde Inbox*\n\n${estructura.contenido_md}\n`;
+                fs.appendFileSync(rutaAbsoluta, bloqueAnexo);
+            } else {
+                console.log(`[ORGANIZADOR] Decisión Inteligente: CREANDO nuevo archivo en ${estructura.ruta_destino}`);
                 const notaFinal = [
                     '---',
                     `tipo: nota_procesada`,
@@ -116,18 +117,17 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
                     '',
                     estructura.contenido_md
                 ].join('\n');
-
-                fs.writeFileSync(rutaNueva, notaFinal);
-                fs.unlinkSync(rutaVieja);
-
-                rutaDestinoFinal = `${estructura.carpeta_sugerida}/${nombreArchivoNuevo}`;
+                fs.writeFileSync(rutaAbsoluta, notaFinal);
             }
+
+            // Destruir el borrador feo
+            fs.unlinkSync(rutaVieja);
             
             procesados.push({
                 original: archivo,
                 tema: estructura.tema_central,
-                accion: anexado ? "Fusionado" : "Creado",
-                ruta: rutaDestinoFinal
+                accion: estructura.accion,
+                ruta: estructura.ruta_destino
             });
         }
 

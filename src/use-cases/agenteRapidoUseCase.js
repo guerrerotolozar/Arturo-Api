@@ -22,9 +22,10 @@ const { toolMap } = require('../tools');
  * Ejecuta el agente para una pregunta dada.
  *
  * @param {string} pregunta
+ * @param {string} [origen]
  * @returns {Promise<{respuesta: string, herramientas: string[], plan: Array}>}
  */
-async function ejecutarAgenteRapido(pregunta) {
+async function ejecutarAgenteRapido(pregunta, origen = '') {
     // 1. El LLM planifica qué herramientas usar
     const plan = await orquestarTareas(pregunta);
     console.log(`[AGENTE] Plan:`, JSON.stringify(plan.tareas));
@@ -36,7 +37,7 @@ async function ejecutarAgenteRapido(pregunta) {
     for (const tarea of plan.tareas) {
         if (tarea.herramienta === 'respuesta_directa') {
             console.log(`[AGENTE] LLM decidió ignorar herramientas (respuesta_directa).`);
-            const respuesta = await consultarIAFast(pregunta);
+            const respuesta = await consultarIAFast(pregunta, origen);
             return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
         }
 
@@ -45,7 +46,7 @@ async function ejecutarAgenteRapido(pregunta) {
         if (!tool) {
             // Herramienta no encontrada → respuesta directa
             console.log(`[AGENTE] Herramienta "${tarea.herramienta}" no encontrada. Modo chat directo.`);
-            const respuesta = await consultarIAFast(pregunta);
+            const respuesta = await consultarIAFast(pregunta, origen);
             return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
         }
 
@@ -61,12 +62,12 @@ async function ejecutarAgenteRapido(pregunta) {
 
     // 3. Si no se usó ninguna tool real → charla directa
     if (herramientasUsadas.length === 0) {
-        const respuesta = await consultarIAFast(pregunta);
+        const respuesta = await consultarIAFast(pregunta, origen);
         return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
     }
 
     // 4. Síntesis final — el LLM humaniza los datos crudos
-    const respuesta = await sintetizarRespuestaAgente(pregunta, datosAcumulados);
+    const respuesta = await sintetizarRespuestaAgente(pregunta, datosAcumulados, origen);
 
     return { respuesta, herramientas: herramientasUsadas, plan: plan.tareas };
 }

@@ -1,0 +1,242 @@
+/**
+ * src/tools/vaultAppendTool.js — Escritura inteligente al Segundo Cerebro.
+ *
+ * ESTRATEGIA DE RESOLUCIÓN DE NOTA (en orden de prioridad):
+ *   1. Match exacto por nombre de archivo (case-insensitive)
+ *   2. Match por alias en frontmatter YAML (nombre_servidor, nombre, etc.)
+ *   3. Match por heading principal (# Título)
+ *   4. Match por wikilinks que la nota contiene ([[Concepto]])
+ *   5. Match por scoring heurístico de contenido (keywords en el cuerpo)
+ *
+ * Si el usuario dice "anota en la torre" pero el archivo se llama "Torre.md",
+ * o dice "agrega a mis suscripciones" y el archivo es "Suscripciones Tech.md",
+ * este motor lo encontrará sin necesidad de que el usuario diga el nombre exacto.
+ *
+ * Principio: SOLO APPEND. Nunca sobreescribe. Es un parche al final.
+ */
+
+const path = require('path');
+const { VAULT_PATH, leerVaultRecursivo, appendArchivo } = require('../repositories/vaultRepository');
+
+// ══════════════════════════════════════════════════════════════════
+// MOTOR DE RESOLUCIÓN INTELIGENTE
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * Extrae metadatos útiles de una nota para matching.
+ * @param {object} nota - { ruta, nombre, contenido }
+ * @returns {object} - { nombre, aliases, heading, wikilinks, tags }
+ */
+function extraerMetadatos(nota) {
+    const meta = {
+        nombre: nota.nombre.toLowerCase(),
+        aliases: [],
+        heading: '',
+        wikilinks: [],
+        tags: []
+    };
+
+    const lines = nota.contenido.split('\n');
+    let inFrontmatter = false;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        // --- Frontmatter YAML ---
+        if (trimmed === '---') {
+            inFrontmatter = !inFrontmatter;
+            continue;
+        }
+        if (inFrontmatter) {
+            // Extraer valores clave del frontmatter como aliases
+            const match = trimmed.match(/^(\w+):\s*(.+)$/);
+            if (match) {
+                const [, key, val] = match;
+                const cleanVal = val.replace(/["\[\]]/g, '').trim().toLowerCase();
+                // Campos que actúan como "nombres alternativos"
+                if (['nombre', 'nombre_servidor', 'alias', 'titulo'].includes(key.toLowerCase())) {
+                    meta.aliases.push(cleanVal);
+                }
+                if (key === 'tags') {
+                    meta.tags = cleanVal.split(',').map(t => t.trim());
+                }
+            }
+            continue;
+        }
+
+        // --- Heading principal (primer # encontrado) ---
+        if (!meta.heading && trimmed.startsWith('# ')) {
+            // Limpiar emojis y espacios extra
+            meta.heading = trimmed.replace(/^#+\s*/, '').replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim().toLowerCase();
+        }
+
+        // --- Wikilinks [[]] ---
+        const wikiMatches = trimmed.matchAll(/\[\[([^\]]+)\]\]/g);
+        for (const wm of wikiMatches) {
+            meta.wikilinks.push(wm[1].toLowerCase());
+        }
+    }
+
+    return meta;
+}
+
+/**
+ * Calcula un score de coincidencia entre una consulta y una nota.
+ * Más alto = más probable que sea la nota correcta.
+ */
+function calcularScore(query, nota, metadatos) {
+    const q = query.toLowerCase().trim();
+    const qWords = q.split(/\s+/).filter(w => w.length > 2);
+    let score = 0;
+
+    // 1. Match EXACTO por nombre de archivo (máxima prioridad)
+    if (metadatos.nombre === q) return 100;
+
+    // 2. Match parcial por nombre de archivo
+    if (metadatos.nombre.includes(q) || q.includes(metadatos.nombre)) score += 30;
+
+    // 3. Match por alias de frontmatter
+    for (const alias of metadatos.aliases) {
+        if (alias === q) return 95;
+        if (alias.includes(q) || q.includes(alias)) score += 25;
+    }
+
+    // 4. Match por heading principal
+    if (metadatos.heading) {
+        if (metadatos.heading === q) return 90;
+        if (metadatos.heading.includes(q) || q.includes(metadatos.heading)) score += 20;
+        // Palabras individuales del query en el heading
+        for (const w of qWords) {
+            if (metadatos.heading.includes(w)) score += 8;
+        }
+    }
+
+    // 5. Match por wikilinks (si la nota es referenciada con ese nombre)
+    for (const wl of metadatos.wikilinks) {
+        if (wl === q) score += 15;
+        for (const w of qWords) {
+            if (wl.includes(w)) score += 3;
+        }
+    }
+
+    // 6. Match por tags del frontmatter
+    for (const tag of metadatos.tags) {
+        for (const w of qWords) {
+            if (tag.includes(w)) score += 5;
+        }
+    }
+
+    // 7. Scoring heurístico por palabras en el contenido
+    const contenidoLower = nota.contenido.toLowerCase();
+    for (const w of qWords) {
+        const count = (contenidoLower.match(new RegExp(`\\b${w}\\b`, 'g')) || []).length;
+        score += Math.min(count * 2, 10); // Cap 10 por palabra
+    }
+
+    return score;
+}
+
+/**
+ * Resuelve qué nota del vault es la más relevante para una consulta.
+ * @param {string} query - Lo que el usuario quiere (ej: "torre", "suscripciones", "ram")
+ * @returns {{ nota: object, score: number } | null}
+ */
+function resolverNota(query, vaultFiles) {
+    let mejorNota = null;
+    let mejorScore = 0;
+
+    console.log(`[VAULT_APPEND] Resolviendo nota para: "${query}" entre ${vaultFiles.length} archivos`);
+
+    for (const nota of vaultFiles) {
+        const meta = extraerMetadatos(nota);
+        const score = calcularScore(query, nota, meta);
+
+        if (score > mejorScore) {
+            mejorScore = score;
+            mejorNota = nota;
+        }
+    }
+
+    if (mejorNota && mejorScore >= 10) {
+        console.log(`[VAULT_APPEND] Mejor match: "${mejorNota.nombre}" (score: ${mejorScore})`);
+        return { nota: mejorNota, score: mejorScore };
+    }
+
+    console.log(`[VAULT_APPEND] No se encontró match suficiente (mejor score: ${mejorScore})`);
+    return null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TOOL EXPORT
+// ══════════════════════════════════════════════════════════════════
+
+module.exports = {
+    nombre: 'vault_append',
+    descripcion: `ANOTA, GUARDA o AGREGA informacion nueva al Segundo Cerebro de Ronald. `
+        + `Usa esta herramienta cuando el usuario diga "anota", "guarda", "agrega", "apunta", "recuerda que..." `
+        + `Parametros: "query" (tema o nombre de la nota destino, ej "torre", "suscripciones", "laptop"), `
+        + `"contenido" (el texto a agregar). `
+        + `Si el usuario no dice donde guardar, infiere el tema del contenido y ponlo en "query". `
+        + `El contenido se agrega AL FINAL de la nota, nunca sobreescribe.`,
+
+    async ejecutar(params) {
+        const query = (params.query || params.nota || '').trim();
+        const contenido = params.contenido;
+
+        if (!query || !contenido) {
+            return {
+                resumen: `Error: faltan parámetros. Necesito "query" (tema/nota) y "contenido" (lo que se va a anotar).`,
+                datos: { exito: false }
+            };
+        }
+
+        console.log(`[TOOL vault_append] Query: "${query}" | Contenido: "${contenido.substring(0, 80)}..."`);
+
+        // 1. Cargar el vault completo
+        const vaultFiles = leerVaultRecursivo(VAULT_PATH);
+        console.log(`[TOOL vault_append] ${vaultFiles.length} notas cargadas del vault`);
+
+        // 2. Resolver la nota destino
+        const resultado = resolverNota(query, vaultFiles);
+
+        if (!resultado) {
+            // No se encontró ninguna nota relevante → crear nueva en raíz
+            const nuevaRuta = path.join(VAULT_PATH, `${query}.md`);
+            console.log(`[TOOL vault_append] Creando nota nueva: ${nuevaRuta}`);
+            try {
+                const textoNuevo = `# ${query}\n\n${contenido}\n`;
+                require('fs').writeFileSync(nuevaRuta, textoNuevo);
+                return {
+                    resumen: `No encontré una nota existente para "${query}", así que creé una nueva: [[${query}]]. El contenido fue guardado.`,
+                    datos: { exito: true, nota: query, accion: 'creada' }
+                };
+            } catch (err) {
+                return {
+                    resumen: `Error al crear la nota nueva: ${err.message}`,
+                    datos: { exito: false }
+                };
+            }
+        }
+
+        // 3. Hacer append a la nota encontrada
+        const rutaFinal = path.join(VAULT_PATH, resultado.nota.ruta);
+        console.log(`[TOOL vault_append] Haciendo append en: ${rutaFinal} (score: ${resultado.score})`);
+
+        try {
+            const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const textoAAnadir = `\n\n---\n*Anotación (${timestamp}):*\n${contenido}\n`;
+            appendArchivo(rutaFinal, textoAAnadir);
+
+            return {
+                resumen: `Listo. Se anotó la información en [[${resultado.nota.nombre}]] (coincidencia: ${resultado.score}%).`,
+                datos: { exito: true, nota: resultado.nota.nombre, score: resultado.score }
+            };
+        } catch (error) {
+            console.error(`[TOOL vault_append] Error al escribir:`, error.message);
+            return {
+                resumen: `Error del sistema al escribir en [[${resultado.nota.nombre}]]: ${error.message}`,
+                datos: { exito: false, error: error.message }
+            };
+        }
+    }
+};

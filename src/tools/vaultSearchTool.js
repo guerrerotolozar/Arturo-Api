@@ -17,12 +17,17 @@ module.exports = {
 
         console.log(`[TOOL vault_search] Buscando en vault: "${query}"`);
         const fragmentos = await buscarContexto(query);
+        console.log(`[TOOL vault_search] Fragmentos encontrados: ${fragmentos.length}`);
 
-        const resumen = fragmentos.length > 0
-            ? 'Datos encontrados en las notas locales:\n' +
-              fragmentos.map(f => `- [${f.fuente}]: ${f.texto}`).join('\n')
-            : 'No encontre nada escrito sobre esto en el Segundo Cerebro.';
-
-        return { resumen, fragmentos };
+        if (fragmentos.length > 0) {
+            const resumen = 'Informacion encontrada en el Segundo Cerebro de Ronald:\n' +
+                fragmentos.map(f => `- Nota [${f.fuente}]: ${f.texto}`).join('\n');
+            return { resumen, fragmentos };
+        }
+        
+        return { 
+            resumen: `No se encontro informacion sobre "${query}" en las notas del Segundo Cerebro. El Cerebro SI es accesible, simplemente no hay notas escritas sobre ese tema especifico.`, 
+            fragmentos: [] 
+        };
     }
-};
+};

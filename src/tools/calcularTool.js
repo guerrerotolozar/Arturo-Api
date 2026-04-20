@@ -41,6 +41,11 @@ function ejecutarPython(codigo) {
         proc.stdout.on('data', d => stdout.push(d.toString()));
         proc.stderr.on('data', d => stderr.push(d.toString()));
 
+        proc.on('error', (err) => {
+            clearTimeout(timer);
+            reject(new Error(`No se pudo invocar Python. Asegurate de que 'python3' este instalado. Detalle: ${err.message}`));
+        });
+
         const timer = setTimeout(() => {
             proc.kill('SIGKILL');
             reject(new Error('Python timeout — ejecución excedió 10s'));

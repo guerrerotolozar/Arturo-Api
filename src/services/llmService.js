@@ -27,12 +27,13 @@ async function necesitaInternet(pregunta) {
 
 // ── Motores de Respuesta Directa ────────────────────────────────
 
-async function consultarIAFast(pregunta) {
+async function consultarIAFast(pregunta, origen = '') {
+    const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]` : '';
+    const identidad = obtenerPrompt('ia_fast.md', `IDENTIDAD OBLIGATORIA:\n- TU eres Arturo V6, asistente personal.\n- EL USUARIO es Ronald, tu creador.\n- Si preguntan "quien soy?", responde "Eres Ronald".\nResponde SIEMPRE en español. Tono tecnico, directo. Max 3 parrafos.`);
     if (esPreguntaSimple(pregunta)) {
-        return llamarOllama(`Responde directo y breve, max 2 lineas.\nPregunta: ${pregunta}\nRespuesta:`, OLLAMA_MODEL_FAST);
+        return llamarOllama(`${identidad}\n${contextoOrigen}\nResponde directo y breve, max 2 lineas.\nPregunta: ${pregunta}\nRespuesta:`, OLLAMA_MODEL_FAST);
     }
-    const promptFast = obtenerPrompt('ia_fast.md', `Eres IA Fast, asistente de Ronald. Tono tecnico con jerga colombiana. Max 3 parrafos. Usa lenguaje claro.`);
-    return llamarOllama(`${promptFast}\n\nPregunta: ${pregunta}\n\nRespuesta:`, OLLAMA_MODEL_FAST);
+    return llamarOllama(`${identidad}\n${contextoOrigen}\n\nPregunta: ${pregunta}\n\nRespuesta:`, OLLAMA_MODEL_FAST);
 }
 
 // ── Orquestador de Agente Tool-Calling ───────────────────────────────
@@ -79,10 +80,11 @@ Respuesta: {"tareas": [{"herramienta": "calcular", "parametros": {"tipo": "amort
     }
 }
 
-async function sintetizarRespuestaAgente(pregunta, datosAcumulados) {
+async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '') {
+    const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
     const promptDefecto = `Eres Arturo, el asistente de Ronald. ${PERFIL_RONALD}\n- No expliques que herramientas usaste. Solo da la respuesta.`;
     const promptBase = obtenerPrompt('sintetizador_agente.md', promptDefecto);
-    const prompt = `${promptBase}\n\nDatos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
+    const prompt = `${promptBase}\n\n${contextoOrigen}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
     return llamarOllama(prompt, OLLAMA_MODEL_FAST);
 }
 

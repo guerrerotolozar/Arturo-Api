@@ -9,13 +9,14 @@ const { ejecutarAgenteRapido } = require('../use-cases/agenteRapidoUseCase');
 const { OLLAMA_MODEL_FAST } = require('../config/env');
 
 async function consultaIAFast(req, res) {
-    const { pregunta } = req.body;
+    const { pregunta, origen } = req.body;
     if (!pregunta) return res.status(400).json({ error: 'Falta la pregunta.' });
 
-    console.log(`\n[AGENTE] Peticion: "${pregunta}"`);
+    const etiquetaOrigen = origen ? `Ronald/${origen}` : 'AGENTE';
+    console.log(`\n[${etiquetaOrigen}] Peticion: "${pregunta}"`);
 
     try {
-        const resultado = await ejecutarAgenteRapido(pregunta);
+        const resultado = await ejecutarAgenteRapido(pregunta, origen);
 
         res.status(200).json({
             pregunta,

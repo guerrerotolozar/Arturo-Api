@@ -25,28 +25,49 @@ async function obtenerVectorCacheado(texto) {
 }
 
 /**
- * Búsqueda semántica general — RAG informativo.
- * Umbral bajo (0.5) para capturar contexto amplio.
+ * Búsqueda de contexto súper rápida — Heurística de Texto.
+ * Reemplaza los lentos vectores matemáticos (Ahorra >60s por búsqueda).
  *
  * @param {string} pregunta
  * @param {number} maxFragmentos
- * @param {number} umbral
  * @returns {Promise<Array<{fuente, texto, score}>>}
  */
-async function buscarContexto(pregunta, maxFragmentos = 5, umbral = 0.5) {
+async function buscarContexto(pregunta, maxFragmentos = 5) {
     const notas = leerVaultRecursivo();
-    if (notas.length === 0) return [];
+    if (notas.length === 0) {
+        console.log(`[RAG TEXTO] Vault vacia — 0 notas cargadas.`);
+        return [];
+    }
 
-    const vectorPregunta = await generarEmbedding(pregunta);
+    // Limpiar palabras vacías ('la', 'el', 'de')
+    const palabrasQuery = pregunta.toLowerCase().replace(/[^\w\sáéíóú]/g, '').split(/\s+/).filter(p => p.length > 3);
+    console.log(`[RAG TEXTO] ${notas.length} notas cargadas. Buscando palabras: [${palabrasQuery.join(', ')}]`);
     const fragmentos = [];
 
     for (const nota of notas) {
         for (const seccion of nota.contenido.split('\n\n')) {
             const limpio = seccion.trim();
             if (limpio.length < 40) continue;
-            const vectorSeccion = await obtenerVectorCacheado(limpio);
-            const score = similitudCoseno(vectorPregunta, vectorSeccion);
-            if (score > umbral) {
+            
+            const seccionLower = limpio.toLowerCase();
+            let score = 0;
+
+            // Puntuación rudimentaria BM25
+            for (const palabra of palabrasQuery) {
+                if (seccionLower.includes(palabra)) {
+                    score += 1;
+                    // Boost si la palabra aparece varias veces
+                    const matches = seccionLower.match(new RegExp(palabra, 'g')) || [];
+                    score += (matches.length * 0.2);
+                }
+            }
+            
+            // Boost adicional si la nota completa se titula como algo de la busqueda
+            if (palabrasQuery.some(p => nota.nombre.toLowerCase().includes(p))) {
+                score += 2;
+            }
+
+            if (score >= 1) { // Umbral de al menos 1 coincidencia
                 fragmentos.push({ fuente: `${nota.nombre} (${nota.ruta})`, texto: limpio.substring(0, 800), score });
             }
         }

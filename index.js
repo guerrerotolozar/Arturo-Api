@@ -21,7 +21,7 @@ const { iniciarWSVoz } = require('./src/controllers/wsVoice');
 const app = express();
 
 // Middlewares
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // v6.2: Aumentado para soportar imágenes Base64 desde la app
 
 // ============================================================
 // RUTAS DE LA API

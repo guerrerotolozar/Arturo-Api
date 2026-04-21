@@ -17,6 +17,9 @@
 
 const path = require('path');
 const { VAULT_PATH, leerVaultRecursivo, appendArchivo } = require('../repositories/vaultRepository');
+const { extraerURL, scrapearURL } = require('../utils/urlScraper');
+const { llamarOllama } = require('../adapters/ollamaAdapter');
+const { OLLAMA_MODEL_DEEP } = require('../config/env');
 
 // ══════════════════════════════════════════════════════════════════
 // MOTOR DE RESOLUCIÓN INTELIGENTE
@@ -145,6 +148,12 @@ function resolverNota(query, vaultFiles) {
     let mejorNota = null;
     let mejorScore = 0;
 
+    // Si el LLM explícitamente dice nueva_nota, no buscamos matchs.
+    if (query.toLowerCase() === 'nueva_nota') {
+        console.log(`[VAULT_APPEND] Query explícito de 'nueva_nota'. Forzando creación.`);
+        return null;
+    }
+
     console.log(`[VAULT_APPEND] Resolviendo nota para: "${query}" entre ${vaultFiles.length} archivos`);
 
     for (const nota of vaultFiles) {
@@ -157,7 +166,8 @@ function resolverNota(query, vaultFiles) {
         }
     }
 
-    if (mejorNota && mejorScore >= 10) {
+    // Se sube el umbral a 75 para evitar que coincida con notas random de OCR (que tenían score ~68)
+    if (mejorNota && mejorScore >= 75) {
         console.log(`[VAULT_APPEND] Mejor match: "${mejorNota.nombre}" (score: ${mejorScore})`);
         return { nota: mejorNota, score: mejorScore };
     }
@@ -179,9 +189,10 @@ module.exports = {
         + `Si el usuario no dice donde guardar, infiere el tema del contenido y ponlo en "query". `
         + `El contenido se agrega AL FINAL de la nota, nunca sobreescribe.`,
 
-    async ejecutar(params) {
+    async ejecutar(params, onProgress = () => {}) {
         const query = (params.query || params.nota || '').trim();
-        const contenido = params.contenido;
+        let contenido = params.contenido;
+        let infoWeb = null;
 
         if (!query || !contenido) {
             return {
@@ -192,6 +203,50 @@ module.exports = {
 
         console.log(`[TOOL vault_append] Query: "${query}" | Contenido: "${contenido.substring(0, 80)}..."`);
 
+        // ── PRE-PROCESAMIENTO PROACTIVO: Detectar y enriquecer URLs ──
+        // Si Ronald manda un link, Arturo no solo pega el link, sino que
+        // entra a la página y extrae título, descripción y precio.
+        const urlDetectada = extraerURL(contenido);
+        if (urlDetectada) {
+            console.log(`[VAULT_APPEND] URL detectada: ${urlDetectada}. Scrapeando...`);
+            onProgress(`Scrapeando página web...`);
+            const tStartScrape = Date.now();
+            try {
+                infoWeb = await scrapearURL(urlDetectada);
+                console.log(`[VAULT_APPEND] Scrape exitoso ✔️ [ ${((Date.now() - tStartScrape)/1000).toFixed(2)}s ] ("${infoWeb.titulo}")`);
+                onProgress(`✅ Web scrapeada. Analizando contenido profundo...`);
+                
+                const tStartLLM = Date.now();
+                console.log(`[VAULT_APPEND] Solicitando formateo inteligente a DEEP model...`);
+                
+                const promptFormateo = `El usuario Ronald quiere guardar una nota en Obsidian relacionada a la siguiente URL: ${urlDetectada}
+
+A continuación se presentan los datos crudos extraídos de la web o de la imagen:
+- Título/Meta: ${infoWeb.titulo}
+- Contenido Extraído: ${infoWeb.contenido}
+
+Petición original de Ronald:
+"${contenido}"
+
+### Instrucciones para formateo:
+1. Extrae y resume las especificaciones, características y precios más importantes de forma profesional y clara (usa viñetas o listas).
+2. Usa formato de **Markdown de Obsidian**.
+3. Incorpora wikilinks orgánicamente (ejemplo \`[[Concepto]]\`) en los términos importantes, tecnologías o posibles nombres de hardware relevantes. No abuses de los links, sólo usa los que ofrezcan valor conceptual.
+4. Si detectas que se habla de un objetivo de hardware o tecnología, puedes referenciar sutilmente usando wikilinks.
+5. Inicia el texto con algo amigable y resumido, omitiendo muletillas o frases introductorias conversacionales (No digas "Aquí tienes...", "Claro, ...").
+6. Solo devuelve el contenido FINAL que será guardado en el archivo Markdown.
+
+Redacta la nota resultante ahora:`;
+
+                const markdownInteligente = await llamarOllama(promptFormateo, OLLAMA_MODEL_DEEP);
+                contenido = markdownInteligente;
+                console.log(`[VAULT_APPEND] Contenido formateado inteligentemente por LLM ✔️ [ ${((Date.now() - tStartLLM)/1000).toFixed(2)}s ]`);
+                onProgress(`✅ Formato IA completado`);
+            } catch (scrapeErr) {
+                console.warn(`[VAULT_APPEND] Proceso falló (${scrapeErr.message}). Guardando solo el link. [ ${((Date.now() - tStartScrape)/1000).toFixed(2)}s ]`);
+            }
+        }
+
         // 1. Cargar el vault completo
         const vaultFiles = leerVaultRecursivo(VAULT_PATH);
         console.log(`[TOOL vault_append] ${vaultFiles.length} notas cargadas del vault`);
@@ -201,10 +256,22 @@ module.exports = {
 
         if (!resultado) {
             // No se encontró ninguna nota relevante → crear nueva en raíz
-            const nuevaRuta = path.join(VAULT_PATH, `${query}.md`);
+            let nombreArchivo = query;
+            if (query.toLowerCase() === 'nueva_nota') {
+                const tituloWeb = infoWeb && infoWeb.titulo ? infoWeb.titulo : '';
+                if (tituloWeb) {
+                    nombreArchivo = tituloWeb.replace(/[<>:"\/\\|?*\x00-\x1F]/g, "").trim().substring(0, 50);
+                } else {
+                    nombreArchivo = `Nota_${Date.now()}`;
+                }
+            } else {
+                nombreArchivo = nombreArchivo.replace(/[<>:"\/\\|?*\x00-\x1F]/g, "");
+            }
+
+            const nuevaRuta = path.join(VAULT_PATH, `${nombreArchivo}.md`);
             console.log(`[TOOL vault_append] Creando nota nueva: ${nuevaRuta}`);
             try {
-                const textoNuevo = `# ${query}\n\n${contenido}\n`;
+                const textoNuevo = `# ${nombreArchivo}\n\n${contenido}\n`;
                 require('fs').writeFileSync(nuevaRuta, textoNuevo);
                 return {
                     resumen: `No encontré una nota existente para "${query}", así que creé una nueva: [[${query}]]. El contenido fue guardado.`,

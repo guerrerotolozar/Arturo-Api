@@ -15,7 +15,7 @@
 
 const { OLLAMA_URL, OLLAMA_MODEL_EMBED } = require('../config/env');
 
-const OLLAMA_TIMEOUT_MS = 120_000; // 2 minutos máx por llamada
+const OLLAMA_TIMEOUT_MS = 300_000; // 5 minutos máx por llamada para modelos profundos/lentos
 
 /**
  * Envía un prompt a Ollama usando STREAMING y acumula la respuesta.

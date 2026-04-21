@@ -29,7 +29,7 @@ async function necesitaInternet(pregunta) {
 
 async function consultarIAFast(pregunta, origen = '') {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]` : '';
-    const identidad = obtenerPrompt('ia_fast.md', `IDENTIDAD OBLIGATORIA:\n- TU eres Arturo V6, asistente personal.\n- EL USUARIO es Ronald, tu creador.\n- Si preguntan "quien soy?", responde "Eres Ronald".\nResponde SIEMPRE en español. Tono tecnico, directo. Max 3 parrafos.`);
+    const identidad = obtenerPrompt('ia_fast.md', `IDENTIDAD OBLIGATORIA:\n- TU eres Arturo V7, asistente personal.\n- EL USUARIO es Ronald, tu creador.\n- Si preguntan "quien soy?", responde "Eres Ronald".\nResponde SIEMPRE en español. Tono tecnico, directo. Max 3 parrafos.`);
     if (esPreguntaSimple(pregunta)) {
         return llamarOllama(`${identidad}\n${contextoOrigen}\nResponde directo y breve, max 2 lineas.\nPregunta: ${pregunta}\nRespuesta:`, OLLAMA_MODEL_FAST);
     }
@@ -45,23 +45,18 @@ async function orquestarTareas(pregunta) {
     const promptDefecto = `Eres el Dispatcher de Arturo. Tu UNICO trabajo es elegir la(s) herramienta(s) correcta(s) y extraer los parametros del usuario. NUNCA respondas la pregunta. NUNCA escribas codigo.
 REGLAS:
 1. TOLERANCIA: Ignora faltas ortograficas. Infiere la intencion real.
-2. NOTAS/GUARDAR: Si el usuario dice "anota", "guarda", "agrega", "apunta" o "recuerda" → USA "vault_append" SIEMPRE. Esta es tu PRIORIDAD MAXIMA.
+2. NOTAS/GUARDAR (PRIORIDAD MAXIMA): Si el usuario dice "anota", "guarda", "agrega", "apunta", "nueva nota", o manda un link sin más contexto → NO USES tavily_search. USA SIEMPRE "vault_append". 
+   - Prohibido buscar en web si el usuario solo solicita guardar/anotar. 'vault_append' scrapeará el link automáticamente por dentro si es necesario.
 3. VISUAL / URLs: Si el texto empieza con "[CONTEXTO VISUAL...]" o contiene una URL, Y ADEMAS el usuario dice "anota/guarda", NO HAGAS "tavily_search" para investigar la foto/url. Usa "vault_append" DIRECTAMENTE mandando todo el contenido extraido/visto allí. 
 4. CADENA DE HERRAMIENTAS: Puedes usar MULTIPLES herramientas en secuencia. Ejemplo: buscar info de conocimiento puro con "tavily_search" Y LUEGO guardarla con "vault_append".
 5. MATEMATICAS: Si hay numeros, formulas, calculos financieros o matematicos, usa "calcular".
 6. PARAMETROS: Extrae los valores del texto del usuario (montos, URLs, temas, etc).
 7. FORMATO: Solo JSON estricto. Las claves DEBEN llevar comillas dobles.
 
-EJEMPLOS:
-
-Usuario: "anota esto en hardware: https://speedlogic.com.co/tarjeta-rtx-5060ti"
-Respuesta: {"tareas": [{"herramienta": "vault_append", "parametros": {"query": "hardware", "contenido": "https://speedlogic.com.co/tarjeta-rtx-5060ti"}}]}
+EJEMPLOS CRÍTICOS:
 
 Usuario: "[CONTEXTO VISUAL de imagen adjunta: Tarjeta De Video...] Petición de Ronald: https://speedlogic.com/ anota esto en una nueva nota"
 Respuesta: {"tareas": [{"herramienta": "vault_append", "parametros": {"query": "nueva_nota", "contenido": "{{texto_del_usuario}}"}}]}
-
-Usuario: "busca precios del RTX 5060 Ti y guardalo en mis notas de hardware"
-Respuesta: {"tareas": [{"herramienta": "tavily_search", "parametros": {"query": "precio RTX 5060 Ti Colombia"}}, {"herramienta": "vault_append", "parametros": {"query": "hardware", "contenido": "{{resultado_anterior}}"}}]}
 
 Usuario: "anota esto en una nueva nota, puede ser en hardware"
 Respuesta: {"tareas": [{"herramienta": "vault_append", "parametros": {"query": "hardware", "contenido": "{{texto_del_usuario}}"}}]}
@@ -98,7 +93,7 @@ Respuesta: {"tareas": [{"herramienta": "calcular", "parametros": {"tipo": "amort
 
 async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '') {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
-    const promptDefecto = `Eres Arturo, el asistente de Ronald. ${PERFIL_RONALD}\n- No expliques que herramientas usaste. Solo da la respuesta.`;
+    const promptDefecto = `Eres Arturo, el asistente de Ronald. ${PERFIL_RONALD}\n- No expliques que herramientas usaste. Solo da la respuesta.\n- REGLA CRÍTICA: Si los datos obtenidos indican que simplemente guardaste o anotaste algo en una nota, tu respuesta debe ser EXTREMADAMENTE corta y directa, tipo: "Listo, anotado." o "Guardado en tu bóveda." No repitas ni resumas lo que acabas de guardar, es redundante.`;
     const promptBase = obtenerPrompt('sintetizador_agente.md', promptDefecto);
     const prompt = `${promptBase}\n\n${contextoOrigen}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
     return llamarOllama(prompt, OLLAMA_MODEL_FAST);

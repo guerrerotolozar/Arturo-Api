@@ -145,7 +145,7 @@ async function procesarArchivo(nombreArchivo, inboxPath, listaConceptos) {
     } else {
         const notaFinal = [
             '---', `tipo: nota_procesada`, `creado: ${timestamp}`,
-            `fuente: Agente_Organizador_V6`, `topic: ${intencion.topicPrincipal}`, '---',
+            `fuente: Agente_Organizador_V7`, `topic: ${intencion.topicPrincipal}`, '---',
             `# ${estructura.tema_central}`, '', estructura.contenido_md
         ].join('\n');
         escribirArchivo(rutaAbsoluta, notaFinal);

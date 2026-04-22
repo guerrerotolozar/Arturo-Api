@@ -3,10 +3,12 @@
  * dotenv se carga UNA SOLA VEZ aquí. El resto de la app solo importa constantes.
  */
 
-require('dotenv').config();
-
 const fs = require('fs');
 const path = require('path');
+
+// v7.1: Carga absoluta del .env para permitir ejecutar scripts desde subcarpetas
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+
 
 // ============================================================
 // VAULT & PROMPTS
@@ -66,7 +68,7 @@ if (!TAVILY_API_KEY) {
     console.warn('[CONFIG] ⚠️  TAVILY_API_KEY ausente en .env — búsqueda web deshabilitada.');
 }
 
-if (!fs.existsSync(VAULT_PATH)) {
+if (VAULT_PATH && !fs.existsSync(VAULT_PATH)) {
     fs.mkdirSync(VAULT_PATH, { recursive: true });
     console.log(`[CONFIG] Vault creado en: ${VAULT_PATH}`);
 }

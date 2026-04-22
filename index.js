@@ -23,6 +23,10 @@ const app = express();
 // Middlewares
 app.use(express.json({ limit: '10mb' })); // v6.2: Aumentado para soportar imágenes Base64 desde la app
 
+// v7: Autenticación por API Key (requerida cuando Arturo está expuesto vía Tailscale Funnel)
+const authGuard = require('./src/middlewares/authGuard');
+app.use(authGuard);
+
 // ============================================================
 // RUTAS DE LA API
 // ============================================================

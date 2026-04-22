@@ -26,13 +26,13 @@ const OLLAMA_MODEL_VISION = process.env.OLLAMA_MODEL_VISION
 // ============================================================
 // WHISPER
 // ============================================================
-const WHISPER_BIN   = process.env.WHISPER_BIN
+const WHISPER_BIN = process.env.WHISPER_BIN
 const WHISPER_MODEL = process.env.WHISPER_MODEL
 
 // ============================================================
 // PIPER
 // ============================================================
-const PIPER_BIN   = process.env.PIPER_BIN
+const PIPER_BIN = process.env.PIPER_BIN
 const PIPER_MODEL = process.env.PIPER_MODEL
 
 // ============================================================
@@ -45,7 +45,7 @@ const TAVILY_URL = process.env.TAVILY_URL
 // SERVIDOR
 // ============================================================
 const PORT = process.env.PORT
-
+const ARTURO_API_KEY = process.env.ARTURO_API_KEY
 
 // ============================================================
 // Prompts Traidos de el Cerebro
@@ -91,5 +91,6 @@ module.exports = {
     TAVILY_API_KEY,
     TAVILY_URL,
     PORT,
-    PERFIL_RONALD
+    PERFIL_RONALD,
+    ARTURO_API_KEY
 };

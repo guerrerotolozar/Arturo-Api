@@ -34,6 +34,7 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
     console.log(`[AGENTE] Plan generado ✔️ [ ${((Date.now() - tPlanStart)/1000).toFixed(2)}s ]`, JSON.stringify(plan.tareas));
 
     let datosAcumulados = '';
+    let respuestaDeep = null;  // Si deep_analysis se ejecuta, su resultado va aquí
     const herramientasUsadas = [];
 
     // 2. JavaScript ejecuta cada herramienta determinísticamente
@@ -85,6 +86,12 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
             herramientasUsadas.push(tarea.herramienta);
             datosAcumulados += `\n[Herramienta: ${tarea.herramienta}]\n${JSON.stringify(resultadoHerramienta.resumen)}\n`;
 
+            // Si deep_analysis fue ejecutado, su resultado ya ES la respuesta final.
+            // No necesita pasar por el sintetizador Fast (sería redundante y lento).
+            if (tarea.herramienta === 'deep_analysis') {
+                respuestaDeep = resultadoHerramienta.resumen;
+            }
+
         } catch (err) {
             console.error(`[AGENTE] Tool "${tarea.herramienta}" fallo: ${err.message}`);
             datosAcumulados += `\n[Herramienta fallida: ${tarea.herramienta}]\n`;
@@ -100,7 +107,13 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
         return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
     }
 
-    // 4. Síntesis final — el LLM humaniza los datos crudos
+    // 4. Si deep_analysis ya generó la respuesta, usarla directamente
+    if (respuestaDeep) {
+        console.log(`[AGENTE] Usando respuesta del modelo profundo (skip sintetizador Fast)`);
+        return { respuesta: respuestaDeep, herramientas: herramientasUsadas, plan: plan.tareas };
+    }
+
+    // 5. Síntesis final — el LLM Fast humaniza los datos crudos
     onProgress('Sintetizando información...');
     const tSynthStart = Date.now();
     const respuesta = await sintetizarRespuestaAgente(pregunta, datosAcumulados, origen);

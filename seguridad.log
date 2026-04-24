@@ -1,3 +1,31 @@
 [SISTEMA ARTURO V7] Registro de Seguridad iniciado.
 Esperando actividad de red...
 --------------------------------------------------
+[2026-04-24T02:13:35.269Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T02:47:54.490Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T02:47:55.516Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //xmlrpc.php
+[2026-04-24T02:47:56.570Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //blog/wp-includes/wlwmanifest.xml
+[2026-04-24T02:47:57.705Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //wordpress/wp-includes/wlwmanifest.xml
+[2026-04-24T02:47:58.700Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //wp/wp-includes/wlwmanifest.xml
+[2026-04-24T02:47:59.684Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //2018/wp-includes/wlwmanifest.xml
+[2026-04-24T02:48:00.737Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //shop/wp-includes/wlwmanifest.xml
+[2026-04-24T02:48:01.788Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //test/wp-includes/wlwmanifest.xml
+[2026-04-24T02:48:02.832Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //wp2/wp-includes/wlwmanifest.xml
+[2026-04-24T02:48:04.292Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //cms/wp-includes/wlwmanifest.xml
+[2026-04-24T05:03:32.880Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T08:04:33.213Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /.git/config
+[2026-04-24T08:13:07.903Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /robots.txt
+[2026-04-24T08:13:08.029Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T09:52:05.756Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /robots.txt
+[2026-04-24T17:15:44.849Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T17:15:45.891Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //xmlrpc.php
+[2026-04-24T17:15:46.953Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //blog/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:47.982Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //wordpress/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:49.019Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //wp/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:50.043Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //2018/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:51.060Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //shop/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:52.071Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //test/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:53.112Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //wp2/wp-includes/wlwmanifest.xml
+[2026-04-24T17:15:54.220Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //cms/wp-includes/wlwmanifest.xml
+[2026-04-24T20:25:11.639Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T20:25:12.731Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /

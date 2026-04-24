@@ -1,56 +1,65 @@
 /**
  * src/repositories/vectorRepository.js
  *
- * Única responsabilidad: leer y escribir en la base de datos vectorial (ChromaDB).
+ * Única responsabilidad: leer y escribir en la base de datos vectorial (LanceDB).
  * No sabe de LLMs, prompts ni lógica de negocio.
  *
- * ChromaDB se usa como librería npm (sin Docker).
- * La colección "arturo_boveda" almacena chunks de archivos .md
- * con sus embeddings generados por Ollama (qwen3-embedding).
+ * LanceDB es EMBEBIDA (como SQLite): vive dentro del proceso de Node,
+ * cero servidores externos, cero Python, cero Docker.
+ * Los datos se guardan en la carpeta ./lancedb_data junto al API.
  */
 
-const { ChromaClient } = require('chromadb');
+const path = require('path');
 const { generarEmbedding } = require('../adapters/ollamaAdapter');
 
-const COLLECTION_NAME = 'arturo_boveda';
+const TABLE_NAME = 'arturo_boveda';
+const DB_PATH = path.join(__dirname, '../../lancedb_data');
 
-// Cliente ChromaDB — se conecta al servidor local (por defecto http://localhost:8000)
-// Si ChromaDB corre como server, usa el default.
-// Si corre in-process vía npm, usa { path: './chroma_data' }
-let client = null;
-let collection = null;
+// Conexión y tabla — se inicializan lazy
+let db = null;
+let table = null;
 
 /**
- * Inicializa la conexión a ChromaDB y obtiene (o crea) la colección principal.
+ * Inicializa la conexión a LanceDB y obtiene (o crea) la tabla principal.
  * Se llama una sola vez al arranque. Las llamadas siguientes reutilizan la conexión.
  */
 async function inicializar() {
-    if (collection) return collection;
+    if (table) return table;
 
     try {
-        client = new ChromaClient({ path: 'http://localhost:8000' });
-        collection = await client.getOrCreateCollection({
-            name: COLLECTION_NAME,
-            metadata: { 'hnsw:space': 'cosine' } // Distancia coseno para similitud semántica
-        });
-        const count = await collection.count();
-        console.log(`[VECTOR-DB] Colección "${COLLECTION_NAME}" lista — ${count} documentos.`);
-        return collection;
+        // Import dinámico porque @lancedb/lancedb es ESM
+        const lancedb = await import('@lancedb/lancedb');
+        db = await lancedb.connect(DB_PATH);
+
+        // Verificar si la tabla ya existe
+        const tablas = await db.tableNames();
+
+        if (tablas.includes(TABLE_NAME)) {
+            table = await db.openTable(TABLE_NAME);
+            const count = await table.countRows();
+            console.log(`[VECTOR-DB] Tabla "${TABLE_NAME}" abierta — ${count} documentos.`);
+        } else {
+            // No existe aún — se creará cuando se inserten datos por primera vez
+            table = null;
+            console.log(`[VECTOR-DB] Tabla "${TABLE_NAME}" no existe aún. Se creará al sincronizar.`);
+        }
+
+        return table;
     } catch (err) {
-        console.error(`[VECTOR-DB] ⚠️  No se pudo conectar a ChromaDB: ${err.message}`);
-        console.error(`[VECTOR-DB] Asegúrate de que ChromaDB esté corriendo en http://localhost:8000`);
-        collection = null;
+        console.error(`[VECTOR-DB] ⚠️  Error inicializando LanceDB: ${err.message}`);
+        table = null;
         throw err;
     }
 }
 
 /**
- * Verifica si ChromaDB está disponible.
+ * Verifica si LanceDB está disponible.
  * @returns {Promise<boolean>}
  */
 async function estaDisponible() {
     try {
-        await inicializar();
+        const lancedb = await import('@lancedb/lancedb');
+        const testDb = await lancedb.connect(DB_PATH);
         return true;
     } catch {
         return false;
@@ -58,106 +67,126 @@ async function estaDisponible() {
 }
 
 /**
- * Inserta o actualiza documentos en la colección.
- * Usa upsert para evitar duplicados (si el ID ya existe, lo reemplaza).
+ * Inserta o actualiza documentos en la tabla.
+ * Si la tabla no existe, la crea con el primer batch.
  *
  * @param {Array<{id: string, texto: string, metadata: object}>} chunks
  */
 async function upsertDocumentos(chunks) {
-    const col = await inicializar();
+    const lancedb = await import('@lancedb/lancedb');
 
-    // ChromaDB acepta batches, pero para embeddings locales (Ollama)
-    // generamos uno por uno para no saturar la VRAM.
+    if (!db) {
+        db = await lancedb.connect(DB_PATH);
+    }
+
+    // Generar embeddings y construir registros para LanceDB
+    const registros = [];
     const BATCH_SIZE = 20;
 
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
         const batch = chunks.slice(i, i + BATCH_SIZE);
 
-        // Generar embeddings para el batch
-        const embeddings = [];
         for (const chunk of batch) {
             try {
                 const vector = await generarEmbedding(chunk.texto);
-                embeddings.push(vector);
+                if (vector && vector.length > 0) {
+                    registros.push({
+                        id: chunk.id,
+                        text: chunk.texto.substring(0, 2000), // Limitar para eficiencia
+                        vector: vector,
+                        fuente: chunk.metadata?.fuente || '',
+                        ruta: chunk.metadata?.ruta || '',
+                        carpeta: chunk.metadata?.carpeta || '',
+                        sincronizado: chunk.metadata?.sincronizado || new Date().toISOString()
+                    });
+                }
             } catch (err) {
                 console.error(`[VECTOR-DB] Error generando embedding para "${chunk.id}": ${err.message}`);
-                // Usar vector vacío como fallback (se filtrará en búsqueda)
-                embeddings.push([]);
             }
-        }
-
-        // Filtrar chunks que fallaron (embedding vacío)
-        const validIds = [];
-        const validDocs = [];
-        const validEmbeddings = [];
-        const validMetadatas = [];
-
-        for (let j = 0; j < batch.length; j++) {
-            if (embeddings[j].length > 0) {
-                validIds.push(batch[j].id);
-                validDocs.push(batch[j].texto);
-                validEmbeddings.push(embeddings[j]);
-                validMetadatas.push(batch[j].metadata || {});
-            }
-        }
-
-        if (validIds.length > 0) {
-            await col.upsert({
-                ids: validIds,
-                documents: validDocs,
-                embeddings: validEmbeddings,
-                metadatas: validMetadatas
-            });
         }
 
         // Progreso
         const procesados = Math.min(i + BATCH_SIZE, chunks.length);
         console.log(`[VECTOR-DB] Progreso: ${procesados}/${chunks.length} chunks procesados.`);
     }
+
+    if (registros.length === 0) {
+        console.warn('[VECTOR-DB] No se generaron registros válidos.');
+        return;
+    }
+
+    // Verificar si la tabla existe
+    const tablas = await db.tableNames();
+
+    if (tablas.includes(TABLE_NAME)) {
+        // Tabla existe → agregar datos
+        table = await db.openTable(TABLE_NAME);
+        await table.add(registros);
+        console.log(`[VECTOR-DB] ${registros.length} registros agregados a tabla existente.`);
+    } else {
+        // Tabla no existe → crearla con los datos
+        table = await db.createTable(TABLE_NAME, registros);
+        console.log(`[VECTOR-DB] Tabla "${TABLE_NAME}" creada con ${registros.length} registros.`);
+    }
 }
 
 /**
- * Búsqueda semántica en la colección.
+ * Búsqueda semántica en la tabla.
  *
  * @param {string} query - Texto de búsqueda
  * @param {number} topK  - Número máximo de resultados
  * @returns {Promise<Array<{id: string, texto: string, metadata: object, distancia: number}>>}
  */
 async function buscarSemanticamente(query, topK = 5) {
-    const col = await inicializar();
+    if (!table) {
+        await inicializar();
+    }
+
+    if (!table) {
+        console.warn('[VECTOR-DB] No hay tabla para buscar. Sincroniza primero.');
+        return [];
+    }
 
     // Generar embedding de la consulta
     const queryEmbedding = await generarEmbedding(query);
 
-    const resultados = await col.query({
-        queryEmbeddings: [queryEmbedding],
-        nResults: topK
-    });
+    const resultados = await table
+        .vectorSearch(queryEmbedding)
+        .limit(topK)
+        .toArray();
 
-    // Aplanar la estructura de ChromaDB
-    if (!resultados.ids || resultados.ids.length === 0 || resultados.ids[0].length === 0) {
-        return [];
-    }
-
-    return resultados.ids[0].map((id, i) => ({
-        id,
-        texto: resultados.documents[0][i],
-        metadata: resultados.metadatas[0][i] || {},
-        distancia: resultados.distances[0][i]
+    // Mapear al formato estándar
+    return resultados.map(r => ({
+        id: r.id,
+        texto: r.text,
+        metadata: {
+            fuente: r.fuente,
+            ruta: r.ruta,
+            carpeta: r.carpeta,
+            sincronizado: r.sincronizado
+        },
+        distancia: r._distance || 0
     }));
 }
 
 /**
- * Elimina todos los documentos de la colección (reset completo).
+ * Elimina la tabla completa (reset).
  */
 async function limpiarColeccion() {
     try {
-        const cl = client || new ChromaClient({ path: 'http://localhost:8000' });
-        await cl.deleteCollection({ name: COLLECTION_NAME });
-        collection = null;
-        console.log(`[VECTOR-DB] Colección "${COLLECTION_NAME}" eliminada.`);
+        const lancedb = await import('@lancedb/lancedb');
+        if (!db) db = await lancedb.connect(DB_PATH);
+        await db.dropTable(TABLE_NAME);
+        table = null;
+        console.log(`[VECTOR-DB] Tabla "${TABLE_NAME}" eliminada.`);
     } catch (err) {
-        console.error(`[VECTOR-DB] Error limpiando colección: ${err.message}`);
+        // Si la tabla no existe, no es un error
+        if (err.message && err.message.includes('not found')) {
+            console.log(`[VECTOR-DB] Tabla "${TABLE_NAME}" no existía.`);
+        } else {
+            console.error(`[VECTOR-DB] Error limpiando tabla: ${err.message}`);
+        }
+        table = null;
     }
 }
 
@@ -167,8 +196,9 @@ async function limpiarColeccion() {
  */
 async function contarDocumentos() {
     try {
-        const col = await inicializar();
-        return await col.count();
+        if (!table) await inicializar();
+        if (!table) return 0;
+        return await table.countRows();
     } catch {
         return 0;
     }

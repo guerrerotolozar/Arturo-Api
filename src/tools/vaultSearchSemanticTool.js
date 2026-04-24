@@ -30,7 +30,7 @@ module.exports = {
         if (!disponible) {
             console.log(`[TOOL vault_search_semantic] ChromaDB no disponible — fallback info.`);
             return {
-                resumen: 'La base de datos vectorial (ChromaDB) no está disponible en este momento. Usa "vault_search" como alternativa para búsqueda por texto.',
+                resumen: 'La base de datos vectorial (LanceDB) no está disponible en este momento. Usa "vault_search" como alternativa para búsqueda por texto.',
                 fragmentos: []
             };
         }

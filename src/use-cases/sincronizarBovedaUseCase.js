@@ -2,7 +2,7 @@
  * src/use-cases/sincronizarBovedaUseCase.js
  *
  * Única responsabilidad: leer la Bóveda de Obsidian, dividir el contenido
- * en chunks lógicos y guardarlos en ChromaDB con sus embeddings.
+ * en chunks lógicos y guardarlos en LanceDB con sus embeddings.
  *
  * No toca req/res — recibe parámetros, devuelve resultado.
  *
@@ -82,7 +82,7 @@ function crearChunk(texto, nombreNota, rutaNota, index) {
 }
 
 /**
- * Ejecuta la sincronización completa de la Bóveda a ChromaDB.
+ * Ejecuta la sincronización completa de la Bóveda a LanceDB.
  *
  * @param {object} opciones
  * @param {boolean}  opciones.forzarReset - Si true, borra la colección antes de insertar
@@ -93,12 +93,12 @@ function crearChunk(texto, nombreNota, rutaNota, index) {
 async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgress = () => {} } = {}) {
     const tStart = Date.now();
 
-    // 1. Verificar que ChromaDB esté disponible
+    // 1. Verificar que LanceDB esté disponible
     const disponible = await estaDisponible();
     if (!disponible) {
         return {
             exito: false,
-            error: 'ChromaDB no está disponible. Asegúrate de que esté corriendo en localhost:8000.',
+            error: 'LanceDB no está disponible. Verifica que @lancedb/lancedb esté instalado.',
             totalNotas: 0,
             totalChunks: 0,
             tiempo: 0
@@ -135,13 +135,13 @@ async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgre
     }
     console.log(`[SYNC] ${todosLosChunks.length} chunks generados.`);
 
-    // 5. Insertar en ChromaDB (con embeddings via Ollama)
+    // 5. Insertar en LanceDB (con embeddings via Ollama)
     onProgress(`Vectorizando ${todosLosChunks.length} chunks (esto puede tomar unos minutos)...`);
     await upsertDocumentos(todosLosChunks);
 
     const totalEnDB = await contarDocumentos();
     const tiempoTotal = ((Date.now() - tStart) / 1000).toFixed(1);
-    console.log(`[SYNC] ✅ Sincronización completada: ${totalEnDB} docs en ChromaDB [${tiempoTotal}s]`);
+    console.log(`[SYNC] ✅ Sincronización completada: ${totalEnDB} docs en LanceDB [${tiempoTotal}s]`);
 
     return {
         exito: true,

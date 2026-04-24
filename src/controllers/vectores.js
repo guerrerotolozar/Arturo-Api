@@ -1,7 +1,7 @@
 /**
  * src/controllers/vectores.js
  *
- * Thin controller para la base de datos vectorial (ChromaDB).
+ * Thin controller para la base de datos vectorial (LanceDB).
  * Endpoints para sincronizar la Bóveda y consultar el estado.
  *
  * Rutas:

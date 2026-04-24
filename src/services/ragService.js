@@ -7,77 +7,42 @@
  */
 
 const path = require('path');
-const { generarEmbedding }     = require('../adapters/ollamaAdapter');
 const { leerVaultRecursivo }    = require('../repositories/vaultRepository');
-const { similitudCoseno }       = require('../core/vectorMath');
+const { buscarSemanticamente, estaDisponible } = require('../repositories/vectorRepository');
 const { VAULT_PATH }            = require('../config/env');
 
-const UMBRAL_FUSION = parseFloat(process.env.VAULT_UMBRAL_FUSION || '0.78');
-
-// Caché en RAM — no pide el mismo vector dos veces por sesión
-const vectorCache = new Map();
-
-async function obtenerVectorCacheado(texto) {
-    if (vectorCache.has(texto)) return vectorCache.get(texto);
-    const vector = await generarEmbedding(texto);
-    vectorCache.set(texto, vector);
-    return vector;
-}
+const UMBRAL_FUSION = parseFloat(process.env.VAULT_UMBRAL_FUSION || '0.35'); // Ajustado para distancia de embeddings qwen3
 
 /**
- * Búsqueda de contexto súper rápida — Heurística de Texto.
- * Reemplaza los lentos vectores matemáticos (Ahorra >60s por búsqueda).
+ * Búsqueda de contexto — Usa LanceDB (Rápido y Semántico)
  *
  * @param {string} pregunta
  * @param {number} maxFragmentos
  * @returns {Promise<Array<{fuente, texto, score}>>}
  */
 async function buscarContexto(pregunta, maxFragmentos = 5) {
-    const notas = leerVaultRecursivo();
-    if (notas.length === 0) {
-        console.log(`[RAG TEXTO] Vault vacia — 0 notas cargadas.`);
+    const disponible = await estaDisponible();
+    if (!disponible) {
+        console.warn(`[RAG LANCEDB] LanceDB no disponible. Devuelve array vacío.`);
         return [];
     }
 
-    // Limpiar palabras vacías ('la', 'el', 'de')
-    const palabrasQuery = pregunta.toLowerCase().replace(/[^\w\sáéíóú]/g, '').split(/\s+/).filter(p => p.length > 3);
-    console.log(`[RAG TEXTO] ${notas.length} notas cargadas. Buscando palabras: [${palabrasQuery.join(', ')}]`);
-    const fragmentos = [];
+    console.log(`[RAG LANCEDB] Buscando semánticamente: "${pregunta}"`);
+    const resultados = await buscarSemanticamente(pregunta, maxFragmentos);
 
-    for (const nota of notas) {
-        for (const seccion of nota.contenido.split('\n\n')) {
-            const limpio = seccion.trim();
-            if (limpio.length < 40) continue;
-            
-            const seccionLower = limpio.toLowerCase();
-            let score = 0;
-
-            // Puntuación rudimentaria BM25
-            for (const palabra of palabrasQuery) {
-                if (seccionLower.includes(palabra)) {
-                    score += 1;
-                    // Boost si la palabra aparece varias veces
-                    const matches = seccionLower.match(new RegExp(palabra, 'g')) || [];
-                    score += (matches.length * 0.2);
-                }
-            }
-            
-            // Boost adicional si la nota completa se titula como algo de la busqueda
-            if (palabrasQuery.some(p => nota.nombre.toLowerCase().includes(p))) {
-                score += 2;
-            }
-
-            if (score >= 1) { // Umbral de al menos 1 coincidencia
-                fragmentos.push({ fuente: `${nota.nombre} (${nota.ruta})`, texto: limpio.substring(0, 800), score });
-            }
-        }
-    }
-
-    return fragmentos.sort((a, b) => b.score - a.score).slice(0, maxFragmentos);
+    // Mapear al formato antiguo esperado por el agente
+    return resultados.map(r => {
+        const score = 1 - r.distancia; // Convertir distancia a similitud
+        return {
+            fuente: `${r.metadata.fuente} (${r.metadata.ruta})`,
+            texto: r.texto,
+            score: score
+        };
+    });
 }
 
 /**
- * Búsqueda para candidatos de FUSIÓN — umbral alto (0.78).
+ * Búsqueda para candidatos de FUSIÓN — umbral de embeddings.
  * Devuelve ruta absoluta para que el use-case pueda escribir.
  *
  * @param {string} texto
@@ -85,39 +50,38 @@ async function buscarContexto(pregunta, maxFragmentos = 5) {
  * @returns {Promise<Array<{nombre, ruta, rutaAbsoluta, fragmento, notaCompleta, score}>>}
  */
 async function buscarCandidatosFusion(texto, maxCandidatos = 3) {
-    const notas = leerVaultRecursivo();
-    if (notas.length === 0) return [];
+    const disponible = await estaDisponible();
+    if (!disponible) return [];
 
-    console.log(`[RAG FUSION] Buscando candidatos (umbral ${UMBRAL_FUSION})...`);
-    const vectorTexto = await generarEmbedding(texto.substring(0, 600));
-    const candidatos  = [];
+    console.log(`[RAG FUSION LANCEDB] Buscando candidatos...`);
+    const resultados = await buscarSemanticamente(texto.substring(0, 600), maxCandidatos);
+    const candidatos = [];
 
-    for (const nota of notas) {
-        let maxScore = 0, mejorSeccion = '';
-        for (const seccion of nota.contenido.split('\n\n')) {
-            const limpio = seccion.trim();
-            if (limpio.length < 40) continue;
-            const score = similitudCoseno(vectorTexto, await obtenerVectorCacheado(limpio));
-            if (score > maxScore) { maxScore = score; mejorSeccion = limpio; }
-        }
-        if (maxScore >= UMBRAL_FUSION) {
-            candidatos.push({
-                nombre:       nota.nombre,
-                ruta:         nota.ruta,
-                rutaAbsoluta: path.join(VAULT_PATH, nota.ruta),
-                fragmento:    mejorSeccion.substring(0, 500),
-                notaCompleta: nota.contenido.substring(0, 800),
-                score:        maxScore
-            });
+    // Necesitamos la nota completa, así que leemos del filesystem usando la ruta que nos da LanceDB
+    const notasFs = leerVaultRecursivo(); // Esto es rápido en memoria
+
+    for (const r of resultados) {
+        const score = 1 - r.distancia;
+        if (score >= UMBRAL_FUSION) {
+            const notaOriginal = notasFs.find(n => n.ruta === r.metadata.ruta);
+            if (notaOriginal) {
+                candidatos.push({
+                    nombre:       r.metadata.fuente,
+                    ruta:         r.metadata.ruta,
+                    rutaAbsoluta: path.join(VAULT_PATH, r.metadata.ruta),
+                    fragmento:    r.texto.substring(0, 500),
+                    notaCompleta: notaOriginal.contenido.substring(0, 800), // Para dar contexto a la IA de fusión
+                    score:        score
+                });
+            }
         }
     }
 
-    const resultado = candidatos.sort((a, b) => b.score - a.score).slice(0, maxCandidatos);
-    console.log(resultado.length > 0
-        ? `[RAG FUSION] ${resultado.length} candidato(s): ${resultado.map(c => `${c.nombre} (${c.score.toFixed(3)})`).join(', ')}`
-        : `[RAG FUSION] Sin candidatos → CREAR nota nueva.`
+    console.log(candidatos.length > 0
+        ? `[RAG FUSION] ${candidatos.length} candidato(s): ${candidatos.map(c => `${c.nombre} (${c.score.toFixed(3)})`).join(', ')}`
+        : `[RAG FUSION] Sin candidatos fuertes → CREAR nota nueva.`
     );
-    return resultado;
+    return candidatos;
 }
 
 module.exports = { buscarContexto, buscarCandidatosFusion, UMBRAL_FUSION };

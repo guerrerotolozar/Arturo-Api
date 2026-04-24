@@ -11,9 +11,10 @@
 const { ejecutarAgenteRapido } = require('../use-cases/agenteRapidoUseCase');
 const { analizarImagen } = require('../adapters/visionAdapter');
 const { OLLAMA_MODEL_FAST } = require('../config/env');
+const { guardarMensaje, obtenerHistorial, actualizarTitulo, crearChat } = require('../repositories/chatRepository');
 
 async function consultaIAFast(req, res) {
-    const { pregunta, origen, imagen_b64 } = req.body;
+    const { pregunta, origen, imagen_b64, chatId } = req.body;
     if (!pregunta && !imagen_b64) return res.status(400).json({ error: 'Falta la pregunta o imagen.' });
 
     const etiquetaOrigen = origen ? `Ronald/${origen}` : 'AGENTE';
@@ -60,8 +61,19 @@ async function consultaIAFast(req, res) {
                 }
             }
 
-            const resultado = await ejecutarAgenteRapido(preguntaEnriquecida, origen, enviarEstado);
+            // ── Recuperar historial si hay chatId ──
+            let historial = [];
+            if (chatId) {
+                historial = obtenerHistorial(chatId, 10);
+                if (historial.length > 0) {
+                    console.log(`[MEMORIA] Chat ${chatId}: ${historial.length} mensajes previos cargados`);
+                }
+            }
+
+            const resultado = await ejecutarAgenteRapido(preguntaEnriquecida, origen, enviarEstado, historial);
             console.log(`[AGENTE] Ejecución total Agente ✔️ ${tick()}`);
+
+            const respuestaId = chatId || `chat_${Date.now()}`;
 
             res.write(`data: ${JSON.stringify({
                 tipo: 'final',
@@ -69,8 +81,26 @@ async function consultaIAFast(req, res) {
                 respuesta:              resultado.respuesta,
                 motor_usado:            `${OLLAMA_MODEL_FAST} (Modo Agente)`,
                 herramientas_activadas: resultado.herramientas,
-                plan_interno:           resultado.plan
+                plan_interno:           resultado.plan,
+                chatId:                 respuestaId
             })}\n\n`);
+
+            // ── Persistir la conversación ──
+            if (chatId || true) { // Siempre guardar para que el historial esté disponible
+                try {
+                    crearChat(respuestaId);
+                    guardarMensaje(respuestaId, 'user', pregunta || '(imagen)');
+                    guardarMensaje(respuestaId, 'assistant', resultado.respuesta);
+                    // Auto-título: si es el primer mensaje, usar los primeros 40 chars
+                    const hist = obtenerHistorial(respuestaId, 2);
+                    if (hist.length <= 2 && pregunta) {
+                        const titulo = pregunta.substring(0, 40) + (pregunta.length > 40 ? '...' : '');
+                        actualizarTitulo(respuestaId, titulo);
+                    }
+                } catch (memErr) {
+                    console.warn(`[MEMORIA] Error al guardar: ${memErr.message}`);
+                }
+            }
             
             res.end();
             console.log(`[SERVIDOR] Flujo completo /IA/fast ✔️ [ ${((Date.now() - tGlobal)/1000).toFixed(2)}s ]`);

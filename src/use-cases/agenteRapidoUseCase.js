@@ -26,11 +26,11 @@ const { toolMap } = require('../tools');
  * @param {function} [onProgress] - Callback para streaming de estados funcionales
  * @returns {Promise<{respuesta: string, herramientas: string[], plan: Array}>}
  */
-async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}) {
+async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}, historial = []) {
     // 1. El LLM planifica qué herramientas usar
     onProgress('Planeando...');
     const tPlanStart = Date.now();
-    const plan = await orquestarTareas(pregunta);
+    const plan = await orquestarTareas(pregunta, historial);
     console.log(`[AGENTE] Plan generado ✔️ [ ${((Date.now() - tPlanStart)/1000).toFixed(2)}s ]`, JSON.stringify(plan.tareas));
 
     let datosAcumulados = '';
@@ -116,7 +116,7 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
     // 5. Síntesis final — el LLM Fast humaniza los datos crudos
     onProgress('Sintetizando información...');
     const tSynthStart = Date.now();
-    const respuesta = await sintetizarRespuestaAgente(pregunta, datosAcumulados, origen);
+    const respuesta = await sintetizarRespuestaAgente(pregunta, datosAcumulados, origen, historial);
     console.log(`[AGENTE] Síntesis final completada ✔️ [ ${((Date.now() - tSynthStart)/1000).toFixed(2)}s ]`);
 
     return { respuesta, herramientas: herramientasUsadas, plan: plan.tareas };

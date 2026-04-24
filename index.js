@@ -15,6 +15,7 @@ const crearNota      = require('./src/controllers/nota');
 const obtenerStatus  = require('./src/controllers/status');
 const { obtenerGrafo, obtenerStatsGrafo } = require('./src/controllers/grafo');
 const procesarVision = require('./src/controllers/vision');
+const { listarChatsController, eliminarChatController } = require('./src/controllers/chats');
 // ¡Crítico! Esto inicializa el WebSocket para que la app del celular conecte la voz
 const { iniciarWSVoz } = require('./src/controllers/wsVoice');
 
@@ -41,7 +42,11 @@ app.post('/IA/vision', procesarVision);          // Procesado de Visión
 app.post('/IA/cerebro', webhookCerebro);         // Webhook para ideas crudas
 app.post('/IA/nota', crearNota);                 // Crear notas estructuradas
 
-// 3. Sistema y Grafo
+// 3. Memoria Conversacional
+app.get('/IA/chats', listarChatsController);      // Lista todos los chats
+app.delete('/IA/chats/:id', eliminarChatController); // Elimina un chat
+
+// 4. Sistema y Grafo
 app.get('/IA/grafo', obtenerGrafo);              // Nodos para Three.js
 app.get('/IA/grafo/stats', obtenerStatsGrafo);   // Estadísticas de conexiones
 app.get('/status', obtenerStatus);               // Health-check (Vault, Ollama)

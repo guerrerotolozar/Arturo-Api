@@ -40,14 +40,25 @@ async function consultarIAFast(pregunta, origen = '') {
 
 const { generarDescripcionHerramientas } = require('../tools');
 
-async function orquestarTareas(pregunta) {
+async function orquestarTareas(pregunta, historial = []) {
     const herramientas = generarDescripcionHerramientas();
     const promptDefecto = `Eres Arturo V7, Orquestador del Segundo Cerebro. Planifica herramientas en JSON estricto. NUNCA respondas la pregunta.
 Proceso: 1.Asociar(vault_search) 2.Actuar 3.Persistir(vault_append) 4.Escalar(deep_analysis si es complejo) 5.respuesta_directa solo para charla casual.
 JSON estricto. Claves con comillas dobles.`;
 
     const promptBase = obtenerPrompt('orquestador.md', promptDefecto);
-    const prompt = `${promptBase}\nHerramientas disponibles:\n${herramientas}\n\nPeticion: "${pregunta}"`;
+
+    // Inyectar historial de conversación si existe
+    let bloqueHistorial = '';
+    if (historial.length > 0) {
+        const lineas = historial.map(m => {
+            const quien = m.rol === 'user' ? 'Ronald' : 'Arturo';
+            return `[${quien}]: ${m.contenido}`;
+        }).join('\n');
+        bloqueHistorial = `\n=== HISTORIAL DE CONVERSACIÓN ===\n${lineas}\n=== FIN HISTORIAL ===\n`;
+    }
+
+    const prompt = `${promptBase}\nHerramientas disponibles:\n${herramientas}${bloqueHistorial}\n\nPeticion: "${pregunta}"`;
     
     // REPARACIÓN CRÍTICA: Ahora que usamos qwen2.5:3b (no-reasoning),
     // PODEMOS devolverle el bozal JSON a Ollama. Esto hace que sea MATEMÁTICAMENTE
@@ -73,11 +84,22 @@ JSON estricto. Claves con comillas dobles.`;
     }
 }
 
-async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '') {
+async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '', historial = []) {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
     const promptDefecto = `Eres Arturo V7, el Segundo Cerebro de Ronald. Sintetiza los datos de las herramientas en una respuesta directa. Si guardaste algo, confirma brevemente. Si encontraste recuerdos, conéctalos. Máximo 3-4 puntos clave.`;
     const promptBase = obtenerPrompt('sintetizador_agente.md', promptDefecto);
-    const prompt = `${promptBase}\n\n${contextoOrigen}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
+
+    // Inyectar historial para que la síntesis tenga contexto
+    let bloqueHistorial = '';
+    if (historial.length > 0) {
+        const lineas = historial.map(m => {
+            const quien = m.rol === 'user' ? 'Ronald' : 'Arturo';
+            return `[${quien}]: ${m.contenido}`;
+        }).join('\n');
+        bloqueHistorial = `\nConversación previa:\n${lineas}\n---\n`;
+    }
+
+    const prompt = `${promptBase}\n\n${contextoOrigen}${bloqueHistorial}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
     return llamarOllama(prompt, OLLAMA_MODEL_FAST);
 }
 

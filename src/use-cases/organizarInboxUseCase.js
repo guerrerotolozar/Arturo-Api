@@ -23,6 +23,7 @@ const { obtenerPrompt }                   = require('../utils/promptManager');
 const { buscarCandidatosFusion }          = require('../services/ragService');
 const { analizarIntenciones, verificarFusion } = require('../services/llmService');
 const { buscarEnWeb }                     = require('../adapters/tavilyAdapter');
+const { switchTo, liberarVRAM }           = require('../services/vramManagerService');
 const {
     leerVaultRecursivo,
     appendArchivo,
@@ -111,60 +112,79 @@ async function procesarArchivo(nombreArchivo, inboxPath, listaConceptos) {
     // PASO 5: Síntesis final con Motor Deep
     const prompt = construirPromptConserje(contenidoCrudo, datosWeb, contextoVault, listaConceptos, intencion.topicPrincipal);
 
-    const response = await fetch(OLLAMA_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ model: OLLAMA_MODEL_DEEP, prompt, stream: false, format: 'json' })
-    });
-
-    if (!response.ok) throw new Error(`Ollama fallo: ${response.status}`);
-    const data = await response.json();
-
-    let estructura;
     try {
-        estructura = JSON.parse(data.response);
-    } catch {
-        const match = data.response.match(/\{[\s\S]*\}/);
-        if (match) estructura = JSON.parse(match[0]);
-        else throw new Error(`No se pudo parsear JSON del modelo`);
+        // VRAM MANAGER: Cargar el modelo profundo para la síntesis
+        console.log(`[INBOX VRAM] Cargando modelo profundo para síntesis...`);
+        await switchTo(OLLAMA_MODEL_DEEP);
+
+        const response = await fetch(OLLAMA_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ model: OLLAMA_MODEL_DEEP, prompt, stream: false, format: 'json' })
+        });
+
+        if (!response.ok) throw new Error(`Ollama fallo: ${response.status}`);
+        const data = await response.json();
+
+        let estructura;
+        try {
+            estructura = JSON.parse(data.response);
+        } catch {
+            const match = data.response.match(/\{[\s\S]*\}/);
+            if (match) estructura = JSON.parse(match[0]);
+            else {
+                console.error(`[INBOX ERROR] Respuesta cruda de Ollama:`, data.response);
+                throw new Error(`No se pudo parsear JSON del modelo`);
+            }
+        }
+
+        // PASO 6: Escribir en el vault
+        const rutaDestino = estructura.ruta_destino || 'Boveda/Inbox/Recuperado.md';
+        const accion = estructura.accion || 'CREAR';
+        const tema = estructura.tema_central || 'Nota sin clasificar';
+        const razonamiento = estructura.razonamiento || '';
+        const contenido = estructura.contenido_md || contenidoCrudo;
+
+        let rutaFinal = rutaDestino;
+        if (!rutaFinal.endsWith('.md')) rutaFinal += '.md';
+        if (accion === 'CREAR' && !rutaFinal.startsWith('Boveda/')) {
+            rutaFinal = path.join('Boveda', rutaFinal);
+        }
+
+        const rutaAbsoluta = path.join(VAULT_PATH, rutaFinal);
+        const timestamp    = obtenerTimestamp();
+
+        if (accion === 'FUSIONAR' && existeArchivo(rutaAbsoluta)) {
+            const rzn = razonamiento ? `\n*Razonamiento: ${razonamiento}*` : '';
+            appendArchivo(rutaAbsoluta, `\n\n---\n### Actualizacion: ${timestamp}\n*Procesado desde Inbox*${rzn}\n\n${contenido}\n`);
+            console.log(`[INBOX] FUSION → ${rutaFinal}`);
+        } else {
+            const notaFinal = [
+                '---', `tipo: nota_procesada`, `creado: ${timestamp}`,
+                `fuente: Agente_Organizador_V7`, `topic: ${intencion.topicPrincipal}`, '---',
+                `# ${tema}`, '', contenido
+            ].join('\n');
+            escribirArchivo(rutaAbsoluta, notaFinal);
+            console.log(`[INBOX] CREAR → ${rutaFinal}`);
+        }
+
+        eliminarArchivo(rutaVieja);
+
+        return {
+            original:               nombreArchivo,
+            tema:                   tema,
+            accion:                 accion,
+            ruta:                   rutaFinal,
+            razonamiento:           razonamiento,
+            buscoWeb:               intencion.necesitaWeb,
+            queryUsada:             intencion.queryWeb || null,
+            candidatosRag:          candidatosRaw.length,
+            candidatosVerificados:  candidatosVerificados.length
+        };
+    } finally {
+        // VRAM MANAGER: Liberar modelo profundo SIEMPRE, incluso si falla
+        await liberarVRAM();
     }
-
-    // PASO 6: Escribir en el vault
-    if (!estructura.ruta_destino.endsWith('.md')) estructura.ruta_destino += '.md';
-    if (estructura.accion === 'CREAR' && !estructura.ruta_destino.startsWith('Boveda/')) {
-        estructura.ruta_destino = path.join('Boveda', estructura.ruta_destino);
-    }
-
-    const rutaAbsoluta = path.join(VAULT_PATH, estructura.ruta_destino);
-    const timestamp    = obtenerTimestamp();
-
-    if (estructura.accion === 'FUSIONAR' && existeArchivo(rutaAbsoluta)) {
-        const razonamiento = estructura.razonamiento ? `\n*Razonamiento: ${estructura.razonamiento}*` : '';
-        appendArchivo(rutaAbsoluta, `\n\n---\n### Actualizacion: ${timestamp}\n*Procesado desde Inbox*${razonamiento}\n\n${estructura.contenido_md}\n`);
-        console.log(`[INBOX] FUSION → ${estructura.ruta_destino}`);
-    } else {
-        const notaFinal = [
-            '---', `tipo: nota_procesada`, `creado: ${timestamp}`,
-            `fuente: Agente_Organizador_V7`, `topic: ${intencion.topicPrincipal}`, '---',
-            `# ${estructura.tema_central}`, '', estructura.contenido_md
-        ].join('\n');
-        escribirArchivo(rutaAbsoluta, notaFinal);
-        console.log(`[INBOX] CREAR → ${estructura.ruta_destino}`);
-    }
-
-    eliminarArchivo(rutaVieja);
-
-    return {
-        original:               nombreArchivo,
-        tema:                   estructura.tema_central,
-        accion:                 estructura.accion,
-        ruta:                   estructura.ruta_destino,
-        razonamiento:           estructura.razonamiento || '',
-        buscoWeb:               intencion.necesitaWeb,
-        queryUsada:             intencion.queryWeb || null,
-        candidatosRag:          candidatosRaw.length,
-        candidatosVerificados:  candidatosVerificados.length
-    };
 }
 
 // ============================================================

@@ -247,7 +247,8 @@ Redacta la nota resultante ahora:`;
             }
         }
 
-        // 1. Cargar el vault completo
+        // 1. Cargar el vault completo (incluyendo subcarpetas)
+        const { VAULT_PATH_BOVEDA } = require('../config/env');
         const vaultFiles = leerVaultRecursivo(VAULT_PATH);
         console.log(`[TOOL vault_append] ${vaultFiles.length} notas cargadas del vault`);
 
@@ -255,9 +256,35 @@ Redacta la nota resultante ahora:`;
         const resultado = resolverNota(query, vaultFiles);
 
         if (!resultado) {
-            // No se encontró ninguna nota relevante → crear nueva en raíz
+            // ── NUEVA LÓGICA: Categorización Inteligente para notas nuevas ──
+            console.log(`[VAULT_APPEND] No hay match. Decidiendo categoría para nueva nota...`);
+            onProgress(`Decidiendo ubicación óptima en la Bóveda...`);
+
+            const promptCategoria = `Ronald quiere guardar esta información:
+"${contenido.substring(0, 300)}"
+
+Tu trabajo es decidir en qué carpeta de su Segundo Cerebro (Obsidian) debe ir.
+Categorías comunes: Finanzas, Hardware, Proyectos, Personal, Ideas, Salud, Trabajo.
+Si el tema no encaja en ninguna, propón una nueva de una sola palabra.
+
+REGLA CRÍTICA: Responde ÚNICA Y EXCLUSIVAMENTE con la palabra exacta de la categoría. Cero explicaciones. Cero puntuación. No digas "La categoría es...". Solo la palabra.`;
+
+            let categoria = 'Inbox';
+            try {
+                const sugerencia = await llamarOllama(promptCategoria, OLLAMA_MODEL_DEEP);
+                // Extraer solo la primera palabra alfabética (ignorar basura conversacional)
+                const match = sugerencia.trim().match(/^[A-Za-zÁÉÍÓÚáéíóúÑñ]+/);
+                if (match) {
+                    categoria = match[0];
+                } else {
+                    console.warn(`[VAULT_APPEND] LLM devolvió formato inválido: "${sugerencia}". Usando Inbox.`);
+                }
+            } catch (err) {
+                console.warn(`[VAULT_APPEND] Falló categorización LLM, usando Inbox.`);
+            }
+
             let nombreArchivo = query;
-            if (query.toLowerCase() === 'nueva_nota') {
+            if (query.toLowerCase() === 'nueva_nota' || !query) {
                 const tituloWeb = infoWeb && infoWeb.titulo ? infoWeb.titulo : '';
                 if (tituloWeb) {
                     nombreArchivo = tituloWeb.replace(/[<>:"\/\\|?*\x00-\x1F]/g, "").trim().substring(0, 50);
@@ -268,18 +295,22 @@ Redacta la nota resultante ahora:`;
                 nombreArchivo = nombreArchivo.replace(/[<>:"\/\\|?*\x00-\x1F]/g, "");
             }
 
-            const nuevaRuta = path.join(VAULT_PATH, `${nombreArchivo}.md`);
-            console.log(`[TOOL vault_append] Creando nota nueva: ${nuevaRuta}`);
+            // Forzar ruta dentro de BOVEDA/CATEGORIA
+            const dirDestino = path.join(VAULT_PATH_BOVEDA, categoria);
+            const nuevaRuta = path.join(dirDestino, `${nombreArchivo}.md`);
+            
+            console.log(`[TOOL vault_append] Creando nota nueva en: Boveda/${categoria}/${nombreArchivo}.md`);
+            
             try {
-                const textoNuevo = `# ${nombreArchivo}\n\n${contenido}\n`;
-                require('fs').writeFileSync(nuevaRuta, textoNuevo);
+                const textoNuevo = `---\ntipo: nota_nueva\ncreado: ${new Date().toISOString()}\ncategoria: ${categoria}\n---\n# ${nombreArchivo}\n\n${contenido}\n`;
+                require('../repositories/vaultRepository').escribirArchivo(nuevaRuta, textoNuevo);
                 return {
-                    resumen: `No encontré una nota existente para "${query}", así que creé una nueva: [[${query}]]. El contenido fue guardado.`,
-                    datos: { exito: true, nota: query, accion: 'creada' }
+                    resumen: `No encontré donde guardarlo, así que creé una nueva categoría y nota: [[Boveda/${categoria}/${nombreArchivo}]].`,
+                    datos: { exito: true, nota: nombreArchivo, path: `Boveda/${categoria}/`, accion: 'creada' }
                 };
             } catch (err) {
                 return {
-                    resumen: `Error al crear la nota nueva: ${err.message}`,
+                    resumen: `Error al crear la nota en la Bóveda: ${err.message}`,
                     datos: { exito: false }
                 };
             }

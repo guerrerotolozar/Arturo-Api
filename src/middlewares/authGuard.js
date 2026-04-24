@@ -28,7 +28,13 @@ function authGuard(req, res, next) {
     const clientKey = req.headers['x-arturo-key'];
 
     if (!clientKey || clientKey !== ARTURO_API_KEY) {
-        console.warn(`[AUTH] ⛔ Acceso denegado desde ${req.ip} → ${req.method} ${req.path}`);
+        const logEntry = `[${new Date().toISOString()}] ⛔ Bloqueado: ${req.ip} → ${req.method} ${req.path}\n`;
+        
+        // Guardar en archivo de seguridad en lugar de ensuciar la consola
+        const fs = require('fs');
+        const path = require('path');
+        fs.appendFileSync(path.join(__dirname, '../../seguridad.log'), logEntry);
+
         return res.status(401).json({
             error: 'No autorizado',
             mensaje: 'Se requiere el header X-Arturo-Key con la clave correcta.'

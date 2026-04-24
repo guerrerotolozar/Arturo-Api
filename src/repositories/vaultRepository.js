@@ -42,7 +42,7 @@ function leerVaultRecursivo(dir = VAULT_PATH) {
             } else if (entrada.name.endsWith('.md')) {
                 try {
                     resultados.push({
-                        ruta:     ruta.replace(VAULT_PATH, ''),
+                        ruta:     ruta.replace(VAULT_PATH, '').replace(/^[/\\]+/, ''),
                         nombre:   path.basename(ruta, '.md'),
                         contenido: fs.readFileSync(ruta, 'utf-8')
                     });

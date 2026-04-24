@@ -15,12 +15,16 @@ module.exports = {
         + `"destino" (ruta nueva relativa a la boveda, ej: "Boveda/Finanzas/nota.md").`,
 
     async ejecutar(params) {
-        const origen = params.origen || params.archivo;
-        const destino = params.destino || params.ruta_nueva;
+        let origen = params.origen || params.archivo;
+        let destino = params.destino || params.ruta_nueva;
 
         if (!origen || !destino) {
             return { resumen: "Error: falta 'origen' y 'destino'.", datos: { exito: false } };
         }
+
+        // Limpiar rutas: quitar / o \ inicial (si no, path.resolve los trata como absolutos)
+        origen = origen.replace(/^[/\\]+/, '');
+        destino = destino.replace(/^[/\\]+/, '');
 
         // Seguridad Pro: Resolución absoluta y prevención de Path Traversal
         const rutaAbsOrigen = path.resolve(VAULT_PATH, origen);

@@ -43,7 +43,7 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
             console.log(`[AGENTE] LLM decidió ignorar herramientas (respuesta_directa).`);
             onProgress('Redactando respuesta...');
             const tDirStart = Date.now();
-            const respuesta = await consultarIAFast(pregunta, origen);
+            const respuesta = await consultarIAFast(pregunta, origen, historial);
             console.log(`[AGENTE] Respuesta directa ✔️ [ ${((Date.now() - tDirStart)/1000).toFixed(2)}s ]`);
             return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
         }
@@ -55,7 +55,7 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
             console.log(`[AGENTE] Herramienta "${tarea.herramienta}" no encontrada. Modo chat directo.`);
             onProgress('Redactando respuesta...');
             const tDirStart = Date.now();
-            const respuesta = await consultarIAFast(pregunta, origen);
+            const respuesta = await consultarIAFast(pregunta, origen, historial);
             console.log(`[AGENTE] Respuesta directa fallback ✔️ [ ${((Date.now() - tDirStart)/1000).toFixed(2)}s ]`);
             return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
         }
@@ -80,9 +80,16 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
             }
 
             const resultadoHerramienta = await tool.ejecutar(tarea.parametros, onProgress);
-            onProgress(`✅ ${tarea.herramienta} ejecutada`);
             console.log(`[TOOL ${tarea.herramienta}] Completada ✔️ [ ${((Date.now() - tToolStart)/1000).toFixed(2)}s ]`);
             
+            // v7.6: Detectar si la herramienta reportó fallo (ej: vault_move no encontró el archivo)
+            if (resultadoHerramienta.datos?.exito === false) {
+                onProgress(`⚠️ ${tarea.herramienta}: ${resultadoHerramienta.resumen}`);
+                console.log(`[TOOL ${tarea.herramienta}] Reportó fallo controlado: ${resultadoHerramienta.resumen}`);
+            } else {
+                onProgress(`✅ ${tarea.herramienta} ejecutada`);
+            }
+
             herramientasUsadas.push(tarea.herramienta);
             datosAcumulados += `\n[Herramienta: ${tarea.herramienta}]\n${JSON.stringify(resultadoHerramienta.resumen)}\n`;
 
@@ -94,7 +101,8 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
 
         } catch (err) {
             console.error(`[AGENTE] Tool "${tarea.herramienta}" fallo: ${err.message}`);
-            datosAcumulados += `\n[Herramienta fallida: ${tarea.herramienta}]\n`;
+            onProgress(`⚠️ ${tarea.herramienta} falló`);
+            datosAcumulados += `\n[Herramienta fallida: ${tarea.herramienta}] Error: ${err.message}\n`;
         }
     }
 
@@ -102,7 +110,7 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
     if (herramientasUsadas.length === 0) {
         onProgress('Redactando respuesta...');
         const tDirStart = Date.now();
-        const respuesta = await consultarIAFast(pregunta, origen);
+        const respuesta = await consultarIAFast(pregunta, origen, historial);
         console.log(`[AGENTE] Respuesta directa fallback ✔️ [ ${((Date.now() - tDirStart)/1000).toFixed(2)}s ]`);
         return { respuesta, herramientas: ['respuesta_directa'], plan: plan.tareas };
     }

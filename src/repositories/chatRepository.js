@@ -16,6 +16,8 @@ const db = new Database(DB_PATH);
 
 // Habilitar WAL mode para mejor rendimiento en lecturas concurrentes
 db.pragma('journal_mode = WAL');
+// CRÍTICO: Sin esto, ON DELETE CASCADE no funciona en SQLite
+db.pragma('foreign_keys = ON');
 
 // ══════════════════════════════════════════════════════════════════
 // INICIALIZACIÓN DE TABLAS

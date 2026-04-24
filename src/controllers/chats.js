@@ -6,7 +6,7 @@
  *   DELETE /IA/chats/:id  → Elimina un chat y su historial
  */
 
-const { listarChats, eliminarChat } = require('../repositories/chatRepository');
+const { listarChats, eliminarChat, obtenerHistorial } = require('../repositories/chatRepository');
 
 async function listarChatsController(req, res) {
     try {
@@ -14,6 +14,19 @@ async function listarChatsController(req, res) {
         res.json({ chats });
     } catch (err) {
         console.error('[CHATS] Error al listar:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+async function obtenerMensajesController(req, res) {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'Falta el ID del chat.' });
+
+    try {
+        const mensajes = obtenerHistorial(id, 100); // Últimos 100 mensajes
+        res.json({ mensajes });
+    } catch (err) {
+        console.error('[CHATS] Error al obtener mensajes:', err.message);
         res.status(500).json({ error: err.message });
     }
 }
@@ -32,4 +45,4 @@ async function eliminarChatController(req, res) {
     }
 }
 
-module.exports = { listarChatsController, eliminarChatController };
+module.exports = { listarChatsController, eliminarChatController, obtenerMensajesController };

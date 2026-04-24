@@ -27,13 +27,24 @@ async function necesitaInternet(pregunta) {
 
 // ── Motores de Respuesta Directa ────────────────────────────────
 
-async function consultarIAFast(pregunta, origen = '') {
-    const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]` : '';
+async function consultarIAFast(pregunta, origen = '', historial = []) {
+    const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
     const identidad = obtenerPrompt('ia_fast.md', `Eres Arturo V7, el Segundo Cerebro de Ronald. Responde en español. Tono directo. Max 3 parrafos.`);
-    if (esPreguntaSimple(pregunta)) {
-        return llamarOllama(`${identidad}\n${contextoOrigen}\nResponde directo y breve, max 2 lineas.\nPregunta: ${pregunta}\nRespuesta:`, OLLAMA_MODEL_FAST);
+    
+    // Construir bloque de historial
+    let bloqueHistorial = '';
+    if (historial.length > 0) {
+        const lineas = historial.map(m => {
+            const quien = m.rol === 'user' ? 'Ronald' : 'Arturo';
+            return `[${quien}]: ${m.contenido}`;
+        }).join('\n');
+        bloqueHistorial = `\n=== HISTORIAL RECIENTE ===\n${lineas}\n=== FIN HISTORIAL ===\n`;
     }
-    return llamarOllama(`${identidad}\n${contextoOrigen}\n\nPregunta: ${pregunta}\n\nRespuesta:`, OLLAMA_MODEL_FAST);
+
+    if (esPreguntaSimple(pregunta)) {
+        return llamarOllama(`${identidad}\n${contextoOrigen}${bloqueHistorial}\nResponde directo y breve, max 2 lineas.\nPregunta: "${pregunta}"\nRespuesta:`, OLLAMA_MODEL_FAST);
+    }
+    return llamarOllama(`${identidad}\n${contextoOrigen}${bloqueHistorial}\nPregunta: "${pregunta}"\nRespuesta:`, OLLAMA_MODEL_FAST);
 }
 
 // ── Orquestador de Agente Tool-Calling ───────────────────────────────

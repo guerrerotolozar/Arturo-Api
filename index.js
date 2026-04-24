@@ -16,6 +16,7 @@ const obtenerStatus  = require('./src/controllers/status');
 const { obtenerGrafo, obtenerStatsGrafo } = require('./src/controllers/grafo');
 const procesarVision = require('./src/controllers/vision');
 const { listarChatsController, eliminarChatController, obtenerMensajesController } = require('./src/controllers/chats');
+const { syncVectoresController, estadoVectoresController, estadoVRAMController, liberarVRAMController } = require('./src/controllers/vectores');
 // ¡Crítico! Esto inicializa el WebSocket para que la app del celular conecte la voz
 const { iniciarWSVoz } = require('./src/controllers/wsVoice');
 
@@ -51,6 +52,12 @@ app.delete('/IA/chats/:id', eliminarChatController); // Elimina un chat
 app.get('/IA/grafo', obtenerGrafo);              // Nodos para Three.js
 app.get('/IA/grafo/stats', obtenerStatsGrafo);   // Estadísticas de conexiones
 app.get('/status', obtenerStatus);               // Health-check (Vault, Ollama)
+
+// 5. Base Vectorial y VRAM
+app.post('/IA/vectores/sync', syncVectoresController);     // Sincronizar Bóveda → ChromaDB
+app.get('/IA/vectores/estado', estadoVectoresController);  // Estado de ChromaDB
+app.get('/IA/vram/estado', estadoVRAMController);          // Modelos cargados en VRAM
+app.post('/IA/vram/liberar', liberarVRAMController);       // Liberar VRAM (descargar pesados)
 
 // ============================================================
 // INICIO DEL SERVIDOR 

@@ -19,6 +19,7 @@
 const { llamarOllama } = require('../adapters/ollamaAdapter');
 const { obtenerPrompt } = require('../utils/promptManager');
 const { OLLAMA_MODEL_DEEP, PERFIL_RONALD } = require('../config/env');
+const { switchTo, liberarVRAM } = require('../services/vramManagerService');
 
 module.exports = {
     nombre: 'deep_analysis',
@@ -60,11 +61,18 @@ INSTRUCCIONES:
 ANÁLISIS:`;
 
         const tStart = Date.now();
+
+        // VRAM Manager: cargar modelo Deep, descargar los demás
+        await switchTo(OLLAMA_MODEL_DEEP);
+
         const respuesta = await llamarOllama(prompt, OLLAMA_MODEL_DEEP);
         const elapsed = ((Date.now() - tStart) / 1000).toFixed(2);
         
         console.log(`[TOOL deep_analysis] Análisis profundo completado ✔️ [ ${elapsed}s ]`);
         onProgress('✅ Análisis profundo completado');
+
+        // VRAM Manager: liberar modelo Deep, dejar solo el Fast
+        await liberarVRAM();
 
         return {
             resumen: respuesta,

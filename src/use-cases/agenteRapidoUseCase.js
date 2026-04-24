@@ -40,6 +40,12 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
     // 2. JavaScript ejecuta cada herramienta determinísticamente
     for (const tarea of plan.tareas) {
         if (tarea.herramienta === 'respuesta_directa') {
+            // v7.7: Si ya hay datos acumulados de herramientas previas (ej: vault_list → respuesta_directa),
+            // NO cortar al modo directo — dejar que el sintetizador use esos datos.
+            if (datosAcumulados.length > 0) {
+                console.log(`[AGENTE] respuesta_directa con datos previos → delegando al sintetizador.`);
+                break; // Sale del loop → va al paso 5 (síntesis con datosAcumulados)
+            }
             console.log(`[AGENTE] LLM decidió ignorar herramientas (respuesta_directa).`);
             onProgress('Redactando respuesta...');
             const tDirStart = Date.now();

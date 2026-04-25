@@ -58,9 +58,9 @@ async function inicializar() {
  */
 async function estaDisponible() {
     try {
-        const lancedb = await import('@lancedb/lancedb');
-        const testDb = await lancedb.connect(DB_PATH);
-        return true;
+        if (db) return true;
+        await inicializar();
+        return db !== null;
     } catch {
         return false;
     }

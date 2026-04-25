@@ -23,6 +23,7 @@ const { obtenerPrompt }                   = require('../utils/promptManager');
 const { buscarCandidatosFusion }          = require('../services/ragService');
 const { analizarIntenciones, verificarFusion } = require('../services/llmService');
 const { buscarEnWeb }                     = require('../adapters/tavilyAdapter');
+const { llamarOllama }                    = require('../adapters/ollamaAdapter');
 const { switchTo, liberarVRAM }           = require('../services/vramManagerService');
 const {
     leerVaultRecursivo,
@@ -117,23 +118,17 @@ async function procesarArchivo(nombreArchivo, inboxPath, listaConceptos) {
         console.log(`[INBOX VRAM] Cargando modelo profundo para síntesis...`);
         await switchTo(OLLAMA_MODEL_DEEP);
 
-        const response = await fetch(OLLAMA_URL, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ model: OLLAMA_MODEL_DEEP, prompt, stream: false, format: 'json' })
-        });
-
-        if (!response.ok) throw new Error(`Ollama fallo: ${response.status}`);
-        const data = await response.json();
+        // Usamos el adapter para beneficiarnos del timeout y manejo de errores centralizado
+        const respuestaCruda = await llamarOllama(prompt, OLLAMA_MODEL_DEEP, 'json');
 
         let estructura;
         try {
-            estructura = JSON.parse(data.response);
+            estructura = JSON.parse(respuestaCruda);
         } catch {
-            const match = data.response.match(/\{[\s\S]*\}/);
+            const match = respuestaCruda.match(/\{[\s\S]*\}/);
             if (match) estructura = JSON.parse(match[0]);
             else {
-                console.error(`[INBOX ERROR] Respuesta cruda de Ollama:`, data.response);
+                console.error(`[INBOX ERROR] Respuesta cruda de Ollama:`, respuestaCruda);
                 throw new Error(`No se pudo parsear JSON del modelo`);
             }
         }

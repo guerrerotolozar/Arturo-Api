@@ -119,8 +119,8 @@ async function consultaIAFast(req, res) {
             })}\n\n`);
 
             // ── Persistir la conversación ──
-            if (chatId || true) { // Siempre guardar para que el historial esté disponible
-                try {
+            // Siempre guardar para que el historial esté disponible
+            try {
                     crearChat(respuestaId);
                     guardarMensaje(respuestaId, 'user', pregunta || '(imagen)');
                     guardarMensaje(respuestaId, 'assistant', resultado.respuesta);
@@ -133,10 +133,9 @@ async function consultaIAFast(req, res) {
                 } catch (memErr) {
                     console.warn(`[MEMORIA] Error al guardar: ${memErr.message}`);
                 }
-            }
             
             clearInterval(keepAliveInterval);
-            console.log(`\n[SERVIDORD] Flujo completo /IA/fast ✔️ [ ${((Date.now() - tGlobal)/1000).toFixed(2)}s ]`);
+            console.log(`\n[SERVIDOR] Flujo completo /IA/fast ✔️ [ ${((Date.now() - tGlobal)/1000).toFixed(2)}s ]`);
             res.write(`data: ${JSON.stringify({ tipo: 'hecho' })}\n\n`);
             res.end();
 

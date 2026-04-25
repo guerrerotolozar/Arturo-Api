@@ -2,7 +2,7 @@
  * src/tools/vaultSearchSemanticTool.js
  *
  * Herramienta de búsqueda SEMÁNTICA en la Bóveda de Ronald.
- * Usa ChromaDB + embeddings (qwen3-embedding) para encontrar
+ * Usa LanceDB + embeddings (qwen3-embedding) para encontrar
  * fragmentos por significado, no solo por coincidencia de texto.
  *
  * Se registra automáticamente vía el auto-scan de tools/index.js.
@@ -28,7 +28,7 @@ module.exports = {
         // Verificar que ChromaDB esté disponible
         const disponible = await estaDisponible();
         if (!disponible) {
-            console.log(`[TOOL vault_search_semantic] ChromaDB no disponible — fallback info.`);
+            console.log(`[TOOL vault_search_semantic] LanceDB no disponible — fallback info.`);
             return {
                 resumen: 'La base de datos vectorial (LanceDB) no está disponible en este momento. Usa "vault_search" como alternativa para búsqueda por texto.',
                 fragmentos: []

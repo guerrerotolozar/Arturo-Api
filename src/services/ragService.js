@@ -2,7 +2,7 @@
  * src/services/ragService.js
  *
  * Lógica de Retrieval-Augmented Generation.
- * Depende de: vaultRepository (leer notas) + ollamaAdapter (embeddings) + vectorMath (coseno).
+ * Depende de: vaultRepository (leer notas) + vectorRepository (LanceDB).
  * No toca req/res ni el file system directamente.
  */
 

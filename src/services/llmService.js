@@ -142,7 +142,7 @@ async function analizarIntenciones(textoNota) {
     const promptBase = obtenerPrompt('analizar_intenciones.md', promptDefecto);
     const prompt = `${promptBase}\n\nNOTA: "${textoNota.replace(/"/g, "'").substring(0, 600)}"\nRESULTADO:`;
     try {
-        const raw = await llamarOllama(prompt, OLLAMA_MODEL_DEEP);
+        const raw = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
         const jsonLimpio = extraerJSONValido(raw);
         if (!jsonLimpio) throw new Error('No JSON found');
         const r = JSON.parse(jsonLimpio);

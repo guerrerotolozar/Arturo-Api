@@ -54,8 +54,8 @@ app.get('/IA/grafo/stats', obtenerStatsGrafo);   // Estadísticas de conexiones
 app.get('/status', obtenerStatus);               // Health-check (Vault, Ollama)
 
 // 5. Base Vectorial y VRAM
-app.post('/IA/vectores/sync', syncVectoresController);     // Sincronizar Bóveda → ChromaDB
-app.get('/IA/vectores/estado', estadoVectoresController);  // Estado de ChromaDB
+app.post('/IA/vectores/sync', syncVectoresController);     // Sincronizar Bóveda → LanceDB
+app.get('/IA/vectores/estado', estadoVectoresController);  // Estado de LanceDB
 app.get('/IA/vram/estado', estadoVRAMController);          // Modelos cargados en VRAM
 app.post('/IA/vram/liberar', liberarVRAMController);       // Liberar VRAM (descargar pesados)
 

@@ -29,3 +29,10 @@ Esperando actividad de red...
 [2026-04-24T17:15:54.220Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET //cms/wp-includes/wlwmanifest.xml
 [2026-04-24T20:25:11.639Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
 [2026-04-24T20:25:12.731Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-24T21:42:15.095Z] ⛔ Bloqueado: ::ffff:100.96.7.56 → POST /IA/vectores/sync
+[2026-04-25T00:02:37.618Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /robots.txt
+[2026-04-25T00:47:00.186Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-25T00:47:05.597Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /favicon.ico
+[2026-04-25T00:49:11.438Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /
+[2026-04-25T00:49:11.556Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /favicon.ico
+[2026-04-25T00:49:11.667Z] ⛔ Bloqueado: ::ffff:127.0.0.1 → GET /favicon.png

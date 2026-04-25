@@ -14,7 +14,7 @@ const { buscarSemanticamente, estaDisponible } = require('../repositories/vector
 
 module.exports = {
     nombre:      'vault_search_semantic',
-    descripcion: 'Búsqueda inteligente en el Segundo Cerebro de Ronald usando IA semántica. Encuentra fragmentos por SIGNIFICADO, no solo por palabras exactas. Ideal para preguntas conceptuales como "¿qué opino sobre productividad?" o "dame contexto sobre mis proyectos". Requiere el campo "query" con el tema a buscar.',
+    descripcion: 'Búsqueda inteligente en el Segundo Cerebro de Ronald. Encuentra fragmentos por SIGNIFICADO. Ideal para preguntas como "¿qué opino sobre productividad?". Si buscas algo específico que suele tener un tag (ej: #cliente/dolly, #finanzas), INCLUYE el tag en el "query" (ej: "estado de cuenta #cliente/dolly") y la base de datos priorizará absolutamente esas notas.',
 
     /**
      * @param {{ query: string, topK?: number }} params
@@ -23,9 +23,14 @@ module.exports = {
     async ejecutar({ query, topK = 5 }) {
         if (!query) throw new Error('vault_search_semantic: falta el campo "query"');
 
-        console.log(`[TOOL vault_search_semantic] Búsqueda semántica: "${query}"`);
+        // Extraer tags de la consulta para forzar el filtro WHERE en LanceDB
+        const regexTags = /#[\w/_-]+/g;
+        const tagsFiltro = query.match(regexTags) || [];
+        const queryLimpio = query.replace(regexTags, '').trim() || query;
 
-        // Verificar que ChromaDB esté disponible
+        console.log(`[TOOL vault_search_semantic] Búsqueda: "${queryLimpio}" ${tagsFiltro.length > 0 ? `| Filtros: ${tagsFiltro.join(', ')}` : ''}`);
+
+        // Verificar que LanceDB esté disponible
         const disponible = await estaDisponible();
         if (!disponible) {
             console.log(`[TOOL vault_search_semantic] LanceDB no disponible — fallback info.`);
@@ -35,7 +40,7 @@ module.exports = {
             };
         }
 
-        const resultados = await buscarSemanticamente(query, topK);
+        const resultados = await buscarSemanticamente(queryLimpio, topK, tagsFiltro);
         console.log(`[TOOL vault_search_semantic] ${resultados.length} fragmentos encontrados.`);
 
         if (resultados.length > 0) {

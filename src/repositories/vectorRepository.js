@@ -94,6 +94,7 @@ async function upsertDocumentos(chunks) {
                         id: chunk.id,
                         text: chunk.texto.substring(0, 2000), // Limitar para eficiencia
                         vector: vector,
+                        tags: chunk.metadata?.tags || '',
                         fuente: chunk.metadata?.fuente || '',
                         ruta: chunk.metadata?.ruta || '',
                         carpeta: chunk.metadata?.carpeta || '',
@@ -135,10 +136,11 @@ async function upsertDocumentos(chunks) {
  *
  * @param {string} query - Texto de búsqueda
  * @param {number} topK  - Número máximo de resultados
+ * @param {Array<string>} tagsFiltro - Tags opcionales para filtrar (ej: ['#finanzas'])
  * @returns {Promise<Array<{id: string, texto: string, metadata: object, distancia: number}>>}
  */
-async function buscarSemanticamente(query, topK = 5) {
-    if (!table) {
+async function buscarSemanticamente(query, topK = 5, tagsFiltro = []) {
+    if (!estaDisponible()) {
         await inicializar();
     }
 
@@ -150,8 +152,16 @@ async function buscarSemanticamente(query, topK = 5) {
     // Generar embedding de la consulta
     const queryEmbedding = await generarEmbedding(query);
 
-    const resultados = await table
-        .vectorSearch(queryEmbedding)
+    let busqueda = table.vectorSearch(queryEmbedding);
+
+    if (tagsFiltro && tagsFiltro.length > 0) {
+        // LanceDB SQL-like where condition
+        const condiciones = tagsFiltro.map(t => `tags LIKE '%${t}%'`).join(' OR ');
+        busqueda = busqueda.where(condiciones);
+        console.log(`[VECTOR-DB] Pre-filtro activado: ${condiciones}`);
+    }
+
+    const resultados = await busqueda
         .limit(topK)
         .toArray();
 
@@ -163,6 +173,7 @@ async function buscarSemanticamente(query, topK = 5) {
             fuente: r.fuente,
             ruta: r.ruta,
             carpeta: r.carpeta,
+            tags: r.tags || '',
             sincronizado: r.sincronizado
         },
         distancia: r._distance || 0

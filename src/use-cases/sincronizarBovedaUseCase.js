@@ -17,6 +17,46 @@ const { upsertDocumentos, limpiarColeccion, contarDocumentos, estaDisponible } =
 const { VAULT_PATH_BOVEDA } = require('../config/env');
 
 /**
+ * Extrae los tags del frontmatter YAML de una nota.
+ * @param {string} contenido
+ * @returns {string} Tags separados por comas (ej: "#cliente/dolly, #finanzas")
+ */
+function extraerTagsYAML(contenido) {
+    const tags = new Set();
+    const match = contenido.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (match) {
+        const frontmatter = match[1];
+        
+        // Formato lista
+        const tagsRegex = /tags:\s*\r?\n((?:\s+- .*\r?\n?)*)/;
+        const tagsMatch = frontmatter.match(tagsRegex);
+        if (tagsMatch && tagsMatch[1]) {
+            const items = tagsMatch[1].match(/^\s+- (.*)$/gm);
+            if (items) {
+                items.forEach(item => {
+                    let tag = item.replace(/^\s+- /, '').trim();
+                    if (tag.startsWith('"') || tag.startsWith("'")) tag = tag.slice(1, -1);
+                    if (tag) tags.add('#' + tag.replace(/^#/, ''));
+                });
+            }
+        }
+        
+        // Formato inline
+        const inlineTagsRegex = /^tags:\s*\[?(.*?)\]?$/m;
+        const inlineMatch = frontmatter.match(inlineTagsRegex);
+        if (inlineMatch && inlineMatch[1] && !inlineMatch[0].includes('\n')) {
+            const list = inlineMatch[1].split(',');
+            list.forEach(t => {
+                let tag = t.trim();
+                if (tag.startsWith('"') || tag.startsWith("'")) tag = tag.slice(1, -1);
+                if (tag) tags.add('#' + tag.replace(/^#/, ''));
+            });
+        }
+    }
+    return Array.from(tags).join(', ');
+}
+
+/**
  * Divide el contenido de un archivo .md en chunks lógicos.
  *
  * @param {string} contenido  - Texto completo del archivo
@@ -28,6 +68,8 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
     const chunks = [];
     const MIN_CHUNK_LENGTH = 50;  // Ignorar chunks muy cortos (títulos solos, etc.)
     const MAX_CHUNK_LENGTH = 1500; // Limitar chunks muy largos para embeddings de calidad
+
+    const tagsMetadata = extraerTagsYAML(contenido);
 
     // Paso 1: Dividir por encabezados markdown (##, ###, ####)
     const secciones = contenido.split(/(?=^#{2,4}\s)/m);
@@ -43,7 +85,7 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
 
             for (const parrafo of parrafos) {
                 if ((buffer + '\n\n' + parrafo).length > MAX_CHUNK_LENGTH && buffer.length >= MIN_CHUNK_LENGTH) {
-                    chunks.push(crearChunk(buffer.trim(), nombreNota, rutaNota, chunks.length));
+                    chunks.push(crearChunk(buffer.trim(), nombreNota, rutaNota, chunks.length, tagsMetadata));
                     buffer = parrafo;
                 } else {
                     buffer += (buffer ? '\n\n' : '') + parrafo;
@@ -51,10 +93,10 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
             }
             // Flush del buffer restante
             if (buffer.trim().length >= MIN_CHUNK_LENGTH) {
-                chunks.push(crearChunk(buffer.trim(), nombreNota, rutaNota, chunks.length));
+                chunks.push(crearChunk(buffer.trim(), nombreNota, rutaNota, chunks.length, tagsMetadata));
             }
         } else {
-            chunks.push(crearChunk(limpio, nombreNota, rutaNota, chunks.length));
+            chunks.push(crearChunk(limpio, nombreNota, rutaNota, chunks.length, tagsMetadata));
         }
     }
 
@@ -64,7 +106,7 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
 /**
  * Crea un objeto chunk con su ID único y metadata.
  */
-function crearChunk(texto, nombreNota, rutaNota, index) {
+function crearChunk(texto, nombreNota, rutaNota, index, tags = '') {
     // ID único: ruta_normalizada::índice_seccion
     const idBase = rutaNota.replace(/[/\\]/g, '_').replace(/\.md$/, '');
     return {
@@ -76,6 +118,7 @@ function crearChunk(texto, nombreNota, rutaNota, index) {
             carpeta: rutaNota.split(/[/\\]/)[0] || 'raiz',
             seccion: index,
             largo: texto.length,
+            tags: tags,
             sincronizado: new Date().toISOString()
         }
     };

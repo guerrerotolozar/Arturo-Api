@@ -3,3 +3,12 @@ node_modules/
 /Cerebro/
 /vault-temp/
 .DS_Store
+
+# Bases de datos locales
+lancedb_data/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+seguridad.log

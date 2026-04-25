@@ -13,6 +13,35 @@ const { analizarImagen } = require('../adapters/visionAdapter');
 const { OLLAMA_MODEL_FAST } = require('../config/env');
 const { guardarMensaje, obtenerHistorial, actualizarTitulo, crearChat } = require('../repositories/chatRepository');
 
+// ============================================================================
+// CANDADO GLOBAL DE VRAM (Cola de peticiones)
+// Evita que múltiples peticiones compitan por la RAM/CPU de Ollama al mismo tiempo
+// ============================================================================
+let procesandoPeticionGlobal = false;
+const colaPeticiones = [];
+
+async function adquirirCandadoGlobal() {
+    return new Promise(resolve => {
+        if (!procesandoPeticionGlobal) {
+            procesandoPeticionGlobal = true;
+            resolve();
+        } else {
+            console.log(`[CANDADO VRAM] Petición encolada. Esperando turno...`);
+            colaPeticiones.push(resolve);
+        }
+    });
+}
+
+function liberarCandadoGlobal() {
+    if (colaPeticiones.length > 0) {
+        console.log(`[CANDADO VRAM] Liberando candado. Procesando siguiente en la cola...`);
+        const siguiente = colaPeticiones.shift();
+        siguiente();
+    } else {
+        procesandoPeticionGlobal = false;
+    }
+}
+
 async function consultaIAFast(req, res) {
     const { pregunta, origen, imagen_b64, chatId } = req.body;
     if (!pregunta && !imagen_b64) return res.status(400).json({ error: 'Falta la pregunta o imagen.' });
@@ -34,6 +63,10 @@ async function consultaIAFast(req, res) {
         const enviarEstado = (mensaje) => {
             res.write(`data: ${JSON.stringify({ tipo: 'estado', texto: mensaje })}\n\n`);
         };
+
+        // Adquirir el candado global de procesamiento ANTES de hacer trabajo pesado.
+        // Si hay otra petición corriendo, esta esperará aquí sin bloquear el Node.js.
+        await adquirirCandadoGlobal();
 
         // Mantener la conexión HTTP viva eviando un comentario en blanco cada 15s.
         // Esto reinicia el contador de Retrofit en Android evitando desconexiones.
@@ -102,17 +135,27 @@ async function consultaIAFast(req, res) {
                 }
             }
             
-            res.end();
-            console.log(`[SERVIDOR] Flujo completo /IA/fast ✔️ [ ${((Date.now() - tGlobal)/1000).toFixed(2)}s ]`);
-        } finally {
             clearInterval(keepAliveInterval);
+            console.log(`\n[SERVIDORD] Flujo completo /IA/fast ✔️ [ ${((Date.now() - tGlobal)/1000).toFixed(2)}s ]`);
+            res.write(`data: ${JSON.stringify({ tipo: 'hecho' })}\n\n`);
+            res.end();
+
+        } catch (err) {
+            clearInterval(keepAliveInterval);
+            throw err;
         }
 
     } catch (err) {
-        console.error(`[AGENTE ERROR] ${err.message}`);
-        // Si ya mandamos cabeceras SSE, devolvemos error en formato evento
-        res.write(`data: ${JSON.stringify({ tipo: 'error', texto: err.message })}\n\n`);
-        res.end();
+        console.error(`\n[AGENTE ERROR] ${err.message}`);
+        // Si ya enviamos cabeceras SSE, mandamos el error como evento
+        if (!res.headersSent || res.getHeader('Content-Type') === 'text/event-stream') {
+            res.write(`data: ${JSON.stringify({ tipo: 'error', error: err.message })}\n\n`);
+            res.end();
+        } else {
+            res.status(500).json({ error: err.message });
+        }
+    } finally {
+        liberarCandadoGlobal();
     }
 }
 

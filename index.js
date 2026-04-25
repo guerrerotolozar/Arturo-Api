@@ -65,7 +65,6 @@ app.post('/IA/vram/liberar', liberarVRAMController);       // Liberar VRAM (desc
 const server = app.listen(PORT, () => {
     console.log(`\n==================================================`);
     console.log(`[SERVIDOR] 🧠 Arturo V7 (SOLID) despertó.`);
-    console.log(`\n[ORGANIZADOR V7 - SOLID] Iniciando procesamiento en SEGUNDO PLANO...`);
     console.log(`[SERVIDOR] Escuchando en el puerto ${PORT}`);
     console.log(`==================================================\n`);
 });

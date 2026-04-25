@@ -31,7 +31,7 @@ async function sintetizarVoz(texto) {
         proc.stdin.end();
 
         proc.stdout.on('data', d => chunks.push(d));
-        proc.stderr.on('data', () => {});
+        proc.stderr.on('data', d => console.warn(`[PIPER stderr] ${d.toString().trim()}`));
         proc.on('close', code => {
             if (code !== 0) return reject(new Error(`Piper exit ${code}`));
             const audioBuffer = Buffer.concat(chunks);

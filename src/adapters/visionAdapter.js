@@ -51,23 +51,63 @@ Responde en español.`;
 
     console.log(`[VISION] Analizando con ${OLLAMA_MODEL_VISION}...`);
 
-    const response = await fetch(OLLAMA_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-            model:  OLLAMA_MODEL_VISION,
-            prompt: prompt,
-            images: [base64],
-            stream: false
-        })
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 300_000); // 5 min max
+
+    let response;
+    try {
+        response = await fetch(OLLAMA_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                model:  OLLAMA_MODEL_VISION,
+                prompt: prompt,
+                images: [base64],
+                stream: true
+            }),
+            signal: controller.signal
+        });
+    } catch (err) {
+        clearTimeout(timeout);
+        throw new Error(`Vision fetch failed: ${err.message}`);
+    }
 
     if (!response.ok) {
+        clearTimeout(timeout);
         throw new Error(`Vision LLM respondio ${response.status}`);
     }
 
-    const data  = await response.json();
-    const texto = data.response.trim();
+    // Parsear stream NDJSON (misma lógica que ollamaAdapter)
+    const respuestaAcumulada = [];
+    try {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lineas = buffer.split('\n');
+            buffer = lineas.pop();
+
+            for (const linea of lineas) {
+                const limpia = linea.trim();
+                if (!limpia) continue;
+                try {
+                    const chunk = JSON.parse(limpia);
+                    if (chunk.response) respuestaAcumulada.push(chunk.response);
+                    if (chunk.done) break;
+                } catch { /* línea NDJSON mal formada — ignorar */ }
+            }
+        }
+    } finally {
+        clearTimeout(timeout);
+    }
+
+    const texto = respuestaAcumulada.join('').trim();
+    if (!texto) throw new Error('Vision LLM devolvió respuesta vacía');
 
     // Autoguardado en Inbox
     const ts        = obtenerTimestamp();

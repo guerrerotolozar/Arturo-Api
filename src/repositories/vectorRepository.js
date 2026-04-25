@@ -140,7 +140,7 @@ async function upsertDocumentos(chunks) {
  * @returns {Promise<Array<{id: string, texto: string, metadata: object, distancia: number}>>}
  */
 async function buscarSemanticamente(query, topK = 5, tagsFiltro = []) {
-    if (!estaDisponible()) {
+    if (!(await estaDisponible())) {
         await inicializar();
     }
 

@@ -3,10 +3,9 @@
  * Más rápido que el Python original. Corre en CPU sin GPU.
  */
 const { spawn }    = require('child_process');
-const { writeFileSync, unlinkSync } = require('fs');
+const fs           = require('fs');
 const path         = require('path');
 const os           = require('os');
-const fs           = require('fs');
 const { WHISPER_BIN, WHISPER_MODEL } = require('../config/env');
 
 
@@ -18,7 +17,7 @@ const { WHISPER_BIN, WHISPER_MODEL } = require('../config/env');
  */
 async function transcribirAudio(audioBuffer) {
     const tmpPath = path.join(os.tmpdir(), `arturo_stt_${Date.now()}.wav`);
-    writeFileSync(tmpPath, audioBuffer);
+    fs.writeFileSync(tmpPath, audioBuffer);
 
     return new Promise((resolve, reject) => {
         const proc = spawn(WHISPER_BIN, [

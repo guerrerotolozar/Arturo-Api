@@ -125,9 +125,11 @@ async function procesarArchivo(nombreArchivo, inboxPath, listaConceptos) {
         try {
             estructura = JSON.parse(respuestaCruda);
         } catch {
-            const match = respuestaCruda.match(/\{[\s\S]*\}/);
-            if (match) estructura = JSON.parse(match[0]);
-            else {
+            const { extraerJSONValido } = require('../utils/jsonExtractor');
+            const jsonLimpio = extraerJSONValido(respuestaCruda);
+            if (jsonLimpio) {
+                estructura = JSON.parse(jsonLimpio);
+            } else {
                 console.error(`[INBOX ERROR] Respuesta cruda de Ollama:`, respuestaCruda);
                 throw new Error(`No se pudo parsear JSON del modelo`);
             }

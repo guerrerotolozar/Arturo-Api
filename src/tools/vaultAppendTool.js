@@ -19,7 +19,8 @@ const path = require('path');
 const { VAULT_PATH, leerVaultRecursivo, appendArchivo } = require('../repositories/vaultRepository');
 const { extraerURL, scrapearURL } = require('../utils/urlScraper');
 const { llamarOllama } = require('../adapters/ollamaAdapter');
-const { OLLAMA_MODEL_DEEP } = require('../config/env');
+const { OLLAMA_MODEL_FAST, OLLAMA_MODEL_DEEP } = require('../config/env');
+const { switchTo, liberarVRAM } = require('../services/vramManagerService');
 
 // ══════════════════════════════════════════════════════════════════
 // MOTOR DE RESOLUCIÓN INTELIGENTE
@@ -238,7 +239,10 @@ Petición original de Ronald:
 
 Redacta la nota resultante ahora:`;
 
+                // VRAM Manager: cargar modelo profundo para formateo
+                await switchTo(OLLAMA_MODEL_DEEP);
                 const markdownInteligente = await llamarOllama(promptFormateo, OLLAMA_MODEL_DEEP);
+                await liberarVRAM();
                 contenido = markdownInteligente;
                 console.log(`[VAULT_APPEND] Contenido formateado inteligentemente por LLM ✔️ [ ${((Date.now() - tStartLLM)/1000).toFixed(2)}s ]`);
                 onProgress(`✅ Formato IA completado`);
@@ -271,7 +275,7 @@ REGLA CRÍTICA: Responde ÚNICA Y EXCLUSIVAMENTE con la palabra exacta de la cat
 
             let categoria = 'Inbox';
             try {
-                const sugerencia = await llamarOllama(promptCategoria, OLLAMA_MODEL_DEEP);
+                const sugerencia = await llamarOllama(promptCategoria, OLLAMA_MODEL_FAST);
                 // Extraer solo la primera palabra alfabética (ignorar basura conversacional)
                 const match = sugerencia.trim().match(/^[A-Za-zÁÉÍÓÚáéíóúÑñ]+/);
                 if (match) {

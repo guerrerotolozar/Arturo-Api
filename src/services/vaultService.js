@@ -14,8 +14,7 @@ const {
     appendArchivo,
     escribirArchivo,
     existeArchivo,
-    asegurarDirectorio,
-    VAULT_PATH: REPO_VAULT_PATH
+    asegurarDirectorio
 } = require('../repositories/vaultRepository');
 
 /**

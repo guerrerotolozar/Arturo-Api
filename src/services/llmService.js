@@ -20,7 +20,7 @@ async function necesitaInternet(pregunta) {
     const promptBase = obtenerPrompt('necesita_internet.md', promptDefecto);
     const prompt = `${promptBase}\nPregunta: "${pregunta}"`;
     try {
-        const r = await llamarOllama(prompt, OLLAMA_MODEL_DEEP);
+        const r = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
         return r.trim().toUpperCase().startsWith('SI');
     } catch { return false; }
 }
@@ -192,5 +192,4 @@ module.exports = {
     analizarIntenciones,
     verificarFusion,
     clasificarIdea,
-    _esPreguntaSimple: esPreguntaSimple,
 };

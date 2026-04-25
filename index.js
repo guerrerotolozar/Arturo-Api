@@ -35,7 +35,7 @@ app.use(authGuard);
 
 // 1. Agentes y Consultas
 app.post('/IA/fast', consultaIAFast);            // El Agente Rápido (Tool Calling)
-app.post('/IA/consultar', consultaIA);           // RAG Profundo + Web
+app.post('/IA/consultar', consultaIA);           // [LEGACY] RAG Profundo + Web — todo el tráfico real va por /IA/fast
 app.post('/IA/limpiar-inbox', limpiarInbox);     // El Conserje / Organizador
 app.post('/IA/vision', procesarVision);          // Procesado de Visión
 

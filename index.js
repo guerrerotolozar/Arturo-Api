@@ -64,9 +64,13 @@ app.post('/IA/vram/liberar', liberarVRAMController);       // Liberar VRAM (desc
 // ============================================================
 const server = app.listen(PORT, () => {
     console.log(`\n==================================================`);
-    console.log(`[SERVIDOR] 🧠 Arturo V7 (SOLID) despertó.`);
+    console.log(`[SERVIDOR] 🧠 Arturo V8 (SOLID) despertó.`);
     console.log(`[SERVIDOR] Escuchando en el puerto ${PORT}`);
     console.log(`==================================================\n`);
 });
 
 iniciarWSVoz(server);
+
+// Inicializar el servicio de Gastos Bancolombia (IMAP)
+const bancolombiaService = require('./src/services/bancolombiaService');
+bancolombiaService.init();

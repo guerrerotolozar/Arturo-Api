@@ -44,6 +44,14 @@ const TAVILY_API_KEY = process.env.TAVILY_API_KEY
 const TAVILY_URL = process.env.TAVILY_URL
 
 // ============================================================
+// IMAP - BANCOLOMBIA
+// ============================================================
+const IMAP_USER = process.env.IMAP_USER
+const IMAP_PASSWORD = process.env.IMAP_PASSWORD
+const IMAP_HOST = process.env.IMAP_HOST
+const IMAP_PORT = process.env.IMAP_PORT
+
+// ============================================================
 // SERVIDOR
 // ============================================================
 const PORT = process.env.PORT
@@ -94,5 +102,9 @@ module.exports = {
     TAVILY_URL,
     PORT,
     PERFIL_RONALD,
-    ARTURO_API_KEY
+    ARTURO_API_KEY,
+    IMAP_USER,
+    IMAP_PASSWORD,
+    IMAP_HOST,
+    IMAP_PORT
 };

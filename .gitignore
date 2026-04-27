@@ -11,4 +11,7 @@ lancedb_data/
 *.db-wal
 
 # Logs
-seguridad.logconfig/instagram_cookies.txt
+seguridad.log
+
+# Sensible
+config/instagram_cookies.txt

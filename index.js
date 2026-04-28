@@ -15,6 +15,7 @@ const crearNota      = require('./src/controllers/nota');
 const obtenerStatus  = require('./src/controllers/status');
 const { obtenerGrafo, obtenerStatsGrafo } = require('./src/controllers/grafo');
 const procesarVision = require('./src/controllers/vision');
+const downloadDirecto = require('./src/controllers/download');
 const { listarChatsController, eliminarChatController, obtenerMensajesController } = require('./src/controllers/chats');
 const { syncVectoresController, estadoVectoresController, estadoVRAMController, liberarVRAMController } = require('./src/controllers/vectores');
 // ¡Crítico! Esto inicializa el WebSocket para que la app del celular conecte la voz
@@ -38,6 +39,7 @@ app.post('/IA/fast', consultaIAFast);            // El Agente Rápido (Tool Call
 app.post('/IA/consultar', consultaIA);           // [LEGACY] RAG Profundo + Web — todo el tráfico real va por /IA/fast
 app.post('/IA/limpiar-inbox', limpiarInbox);     // El Conserje / Organizador
 app.post('/IA/vision', procesarVision);          // Procesado de Visión
+app.post('/IA/download', downloadDirecto);        // Descarga directa (sin LLM) — Share Target
 
 // 2. Ingestión y Creación
 app.post('/IA/cerebro', webhookCerebro);         // Webhook para ideas crudas

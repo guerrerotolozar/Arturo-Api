@@ -1,17 +1,11 @@
 node_modules/
 .env
-/Cerebro/
-/vault-temp/
-.DS_Store
-
-# Bases de datos locales
+.env.local
 lancedb_data/
 *.db
 *.db-shm
 *.db-wal
-
-# Logs
-seguridad.log
-
-# Sensible
+*.log
+Media/
 config/instagram_cookies.txt
+instagram_cookies.txt

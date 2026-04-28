@@ -13,7 +13,8 @@
  */
 
 const { leerVaultRecursivo } = require('../repositories/vaultRepository');
-const { upsertDocumentos, limpiarColeccion, contarDocumentos, estaDisponible } = require('../repositories/vectorRepository');
+const { upsertDocumentos, limpiarColeccion, contarDocumentos, estaDisponible, eliminarDocumentosPorRuta } = require('../repositories/vectorRepository');
+const { obtenerEstadoSync, upsertEstadoSync, eliminarEstadoSync, limpiarEstadoSync } = require('../repositories/syncRepository');
 const { VAULT_PATH_BOVEDA } = require('../config/env');
 
 /**
@@ -152,46 +153,97 @@ async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgre
     if (forzarReset) {
         onProgress('Limpiando colección anterior...');
         await limpiarColeccion();
-        console.log('[SYNC] Colección limpiada — reset forzado.');
+        limpiarEstadoSync(); // Limpiar también SQLite
+        console.log('[SYNC] Colección y estado limpiados — reset forzado.');
     }
 
-    // 3. Leer todas las notas de la Bóveda
-    onProgress('Leyendo Bóveda...');
+    // 3. Leer todas las notas de la Bóveda (y sus mtimeMs)
+    onProgress('Analizando Bóveda...');
     const dirLectura = carpeta
         ? require('path').join(VAULT_PATH_BOVEDA || '', carpeta)
-        : undefined; // undefined = leer todo el vault (usa default de leerVaultRecursivo)
+        : undefined; // undefined = leer todo el vault
 
-    const notas = leerVaultRecursivo(dirLectura);
-    console.log(`[SYNC] ${notas.length} notas leídas de la Bóveda.`);
+    const notasFisicas = leerVaultRecursivo(dirLectura);
+    console.log(`[SYNC] ${notasFisicas.length} notas detectadas en disco.`);
 
-    if (notas.length === 0) {
-        return { exito: true, totalNotas: 0, totalChunks: 0, tiempo: Date.now() - tStart };
+    // 4. Lógica Incremental: Comparar con SQLite
+    const estadoAnterior = obtenerEstadoSync(); // Map<ruta, mtimeMs>
+    const notasAProcesar = [];
+    const rutasEnBoveda = new Set();
+    
+    let eliminadas = 0;
+    
+    for (const nota of notasFisicas) {
+        rutasEnBoveda.add(nota.ruta);
+        // Math.floor para evitar ligeros bugs de precisión de microsegundos en fs.stat
+        const mtimeMsNota = Math.floor(nota.mtimeMs || 0); 
+        const mtimeAnterior = estadoAnterior.get(nota.ruta);
+        
+        if (!mtimeAnterior || mtimeAnterior !== mtimeMsNota) {
+            // Es nueva o fue modificada
+            if (mtimeAnterior) {
+                 // Fue modificada: borrar vectores viejos en LanceDB antes de insertar los nuevos
+                 await eliminarDocumentosPorRuta(nota.ruta);
+            }
+            notasAProcesar.push(nota);
+        }
+    }
+    
+    // Buscar archivos eliminados en la bóveda
+    // (Solo hacemos esto si estamos haciendo un sync global, no de una sola carpeta)
+    if (!carpeta && !forzarReset) {
+        for (const rutaVieja of estadoAnterior.keys()) {
+            if (!rutasEnBoveda.has(rutaVieja)) {
+                // El archivo ya no existe físicamente, eliminar sus vectores y estado
+                await eliminarDocumentosPorRuta(rutaVieja);
+                eliminarEstadoSync(rutaVieja);
+                eliminadas++;
+            }
+        }
     }
 
-    // 4. Generar chunks de todas las notas
-    onProgress(`Dividiendo ${notas.length} notas en chunks...`);
+    if (notasAProcesar.length === 0 && eliminadas === 0) {
+        console.log(`[SYNC] Nada que sincronizar. Todo está al día.`);
+        onProgress(`✅ Bóveda al día (0 cambios).`);
+        return { 
+            exito: true, 
+            totalNotas: notasFisicas.length, 
+            totalChunks: 0, 
+            tiempo: ((Date.now() - tStart) / 1000).toFixed(1),
+            mensaje: "Sin cambios"
+        };
+    }
+
+    // 5. Generar chunks SOLAMENTE de las notas a procesar
+    onProgress(`Vectorizando ${notasAProcesar.length} notas cambiadas...`);
     const todosLosChunks = [];
 
-    for (const nota of notas) {
+    for (const nota of notasAProcesar) {
         const chunks = dividirEnChunks(nota.contenido, nota.nombre, nota.ruta);
         todosLosChunks.push(...chunks);
     }
-    console.log(`[SYNC] ${todosLosChunks.length} chunks generados.`);
-
-    // 5. Insertar en LanceDB (con embeddings via Ollama)
-    onProgress(`Vectorizando ${todosLosChunks.length} chunks (esto puede tomar unos minutos)...`);
-    await upsertDocumentos(todosLosChunks);
+    
+    if (todosLosChunks.length > 0) {
+        console.log(`[SYNC] ${todosLosChunks.length} chunks nuevos/modificados a insertar.`);
+        await upsertDocumentos(todosLosChunks);
+        
+        // 6. Actualizar SQLite estado
+        for (const nota of notasAProcesar) {
+            upsertEstadoSync(nota.ruta, Math.floor(nota.mtimeMs || 0));
+        }
+    }
 
     const totalEnDB = await contarDocumentos();
     const tiempoTotal = ((Date.now() - tStart) / 1000).toFixed(1);
-    console.log(`[SYNC] ✅ Sincronización completada: ${totalEnDB} docs en LanceDB [${tiempoTotal}s]`);
+    console.log(`[SYNC] ✅ Sincronización Incremental completada: ${notasAProcesar.length} actualizados, ${eliminadas} borrados. Total docs: ${totalEnDB} [${tiempoTotal}s]`);
 
     return {
         exito: true,
-        totalNotas: notas.length,
+        totalNotas: notasFisicas.length,
         totalChunks: todosLosChunks.length,
         totalEnDB,
-        tiempo: parseFloat(tiempoTotal)
+        tiempo: parseFloat(tiempoTotal),
+        mensaje: `Actualizadas: ${notasAProcesar.length}, Eliminadas: ${eliminadas}`
     };
 }
 

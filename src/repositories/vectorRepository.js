@@ -181,6 +181,26 @@ async function buscarSemanticamente(query, topK = 5, tagsFiltro = []) {
 }
 
 /**
+ * Elimina todos los chunks (documentos) asociados a una ruta de archivo específica.
+ * @param {string} ruta 
+ */
+async function eliminarDocumentosPorRuta(ruta) {
+    if (!table) await inicializar();
+    if (!table) return;
+
+    try {
+        // En LanceDB, la condición delete se escribe en sintaxis SQL-like
+        // Usamos comillas dobles para escapar strings en caso de caracteres raros, 
+        // aunque LanceDB suele requerir comillas simples para strings. Escapamos comillas simples.
+        const rutaEscapada = ruta.replace(/'/g, "''");
+        await table.delete(`ruta = '${rutaEscapada}'`);
+        console.log(`[VECTOR-DB] 🗑️  Chunks eliminados para: ${ruta}`);
+    } catch (err) {
+        console.error(`[VECTOR-DB] Error eliminando chunks de ${ruta}: ${err.message}`);
+    }
+}
+
+/**
  * Elimina la tabla completa (reset).
  */
 async function limpiarColeccion() {
@@ -220,6 +240,7 @@ module.exports = {
     estaDisponible,
     upsertDocumentos,
     buscarSemanticamente,
+    eliminarDocumentosPorRuta,
     limpiarColeccion,
     contarDocumentos
 };

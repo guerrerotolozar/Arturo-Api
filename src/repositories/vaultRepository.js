@@ -41,10 +41,12 @@ function leerVaultRecursivo(dir = VAULT_PATH) {
                 resultados.push(...leerVaultRecursivo(ruta));
             } else if (entrada.name.endsWith('.md')) {
                 try {
+                    const stats = fs.statSync(ruta);
                     resultados.push({
                         ruta:     ruta.replace(VAULT_PATH, '').replace(/^[/\\]+/, ''),
                         nombre:   path.basename(ruta, '.md'),
-                        contenido: fs.readFileSync(ruta, 'utf-8')
+                        contenido: fs.readFileSync(ruta, 'utf-8'),
+                        mtimeMs:  stats.mtimeMs
                     });
                 } catch { /* archivo inaccesible — ignorar */ }
             }

@@ -21,14 +21,12 @@ class BancolombiaService {
     }
 
     async init() {
+        console.log('[BANCOLOMBIA] 💼 Servicio de IMAP activo en 2do plano.');
         // Registrar el listener ANTES de conectar
         imapAdapter.onMessage(this.handleIncomingEmail.bind(this));
 
         const connected = await imapAdapter.connect();
         if (!connected) return;
-
-        console.log('[BANCOLOMBIA] 💼 Servicio de gastos activo.');
-        console.log(`[BANCOLOMBIA] 📁 Escribiendo en: ${this.gastosFilePath}`);
     }
 
     async handleIncomingEmail({ from, subject, text, messageId }) {

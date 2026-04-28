@@ -34,7 +34,7 @@ class ImapAdapter {
         this._cleanup();
 
         try {
-            console.log(`[IMAP] 🔌 Conectando a ${IMAP_HOST}:${IMAP_PORT}...`);
+            // console.log(`[IMAP] 🔌 Conectando a ${IMAP_HOST}:${IMAP_PORT}...`);
 
             this.client = new ImapFlow({
                 host: IMAP_HOST,
@@ -47,11 +47,11 @@ class ImapAdapter {
             });
 
             await this.client.connect();
-            console.log('[IMAP] ✅ Conectado a Gmail.');
+            // console.log('[IMAP] ✅ Conectado a Gmail.');
 
-            // Abrir INBOX (se queda abierto para siempre)
-            await this.client.mailboxOpen('INBOX');
-            console.log('[IMAP] 📂 INBOX abierto.');
+            const mailbox = process.env.IMAP_MAILBOX || 'Compras Tarjeta Credito';
+            await this.client.mailboxOpen(mailbox);
+            // console.log(`[IMAP] 📂 Carpeta "${mailbox}" abierta.`);
 
             // ── Snapshot: ignorar correos viejos ─────────────
             await this._snapshotExisting();
@@ -77,7 +77,7 @@ class ImapAdapter {
             this.pollTimer = setInterval(() => this._processNewMail(), POLL_INTERVAL_MS);
 
             this.ready = true;
-            console.log('[IMAP] 🔄 Escuchando correos nuevos (IDLE + polling cada 30s).');
+            // console.log('[IMAP] 🔄 Escuchando correos nuevos (IDLE + polling cada 30s).');
             return true;
 
         } catch (error) {
@@ -103,9 +103,9 @@ class ImapAdapter {
             });
             if (existingUIDs && existingUIDs.length > 0) {
                 for (const uid of existingUIDs) this.processedUIDs.add(uid);
-                console.log(`[IMAP] 📋 ${existingUIDs.length} correo(s) antiguos de Bancolombia ignorados.`);
+                // console.log(`[IMAP] 📋 ${existingUIDs.length} correo(s) antiguos de Bancolombia ignorados.`);
             } else {
-                console.log('[IMAP] 📋 No hay correos antiguos de Bancolombia sin leer.');
+                // console.log('[IMAP] 📋 No hay correos antiguos de Bancolombia sin leer.');
             }
         } catch (err) {
             console.warn('[IMAP] ⚠️  Snapshot fallido (no crítico):', err.message);
@@ -186,7 +186,7 @@ class ImapAdapter {
         if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
         if (this.client) {
             this.client.removeAllListeners();
-            try { this.client.close(); } catch (e) {}
+            try { this.client.close(); } catch (e) { }
             this.client = null;
         }
     }

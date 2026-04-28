@@ -27,10 +27,12 @@ const tools = fs
             console.warn(`[TOOLS] ${f} no cumple el contrato {nombre, descripcion, ejecutar}. Ignorando.`);
             return null;
         }
-        console.log(`[TOOLS] Herramienta registrada: "${tool.nombre}"`);
+        return tool;
         return tool;
     })
     .filter(Boolean);
+
+console.log(`[TOOLS] 🛠️  ${tools.length} herramientas cargadas correctamente en el Agente.`);
 
 // Mapa para lookup O(1) por nombre
 const toolMap = new Map(tools.map(t => [t.nombre, t]));

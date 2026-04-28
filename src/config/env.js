@@ -50,6 +50,13 @@ const IMAP_USER = process.env.IMAP_USER
 const IMAP_PASSWORD = process.env.IMAP_PASSWORD
 const IMAP_HOST = process.env.IMAP_HOST
 const IMAP_PORT = process.env.IMAP_PORT
+const IMAP_MAILBOX = process.env.IMAP_MAILBOX
+
+// ============================================================
+// MEDIA DOWNLOADER
+// ============================================================
+const MEDIA_PATH = process.env.MEDIA_PATH
+const COOKIES_PATH = process.env.COOKIES_PATH
 
 // ============================================================
 // SERVIDOR
@@ -106,5 +113,8 @@ module.exports = {
     IMAP_USER,
     IMAP_PASSWORD,
     IMAP_HOST,
-    IMAP_PORT
+    IMAP_PORT,
+    IMAP_MAILBOX,
+    MEDIA_PATH,
+    COOKIES_PATH
 };

@@ -16,6 +16,7 @@
  */
 
 const { orquestarTareas, consultarIAFast, sintetizarRespuestaAgente } = require('../services/llmService');
+const { esPreguntaSimple } = require('../utils/textHeuristics');
 const { toolMap } = require('../tools');
 
 /**
@@ -27,6 +28,16 @@ const { toolMap } = require('../tools');
  * @returns {Promise<{respuesta: string, herramientas: string[], plan: Array}>}
  */
 async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}, historial = []) {
+    // 0. Fast-Path (Bypass Orquestador para saludos y preguntas muy simples)
+    if (esPreguntaSimple(pregunta)) {
+        console.log(`[AGENTE] Fast-Path: Pregunta simple detectada ("${pregunta}"). Saltando orquestador.`);
+        onProgress('Redactando respuesta directa...');
+        const tDirStart = Date.now();
+        const respuesta = await consultarIAFast(pregunta, origen, historial);
+        console.log(`[AGENTE] Respuesta directa (Fast-Path) ✔️ [ ${((Date.now() - tDirStart)/1000).toFixed(2)}s ]`);
+        return { respuesta, herramientas: ['respuesta_directa'], plan: [] };
+    }
+
     // 1. El LLM planifica qué herramientas usar
     onProgress('Planeando...');
     const tPlanStart = Date.now();

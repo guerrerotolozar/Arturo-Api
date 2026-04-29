@@ -24,6 +24,13 @@ const { iniciarWSVoz } = require('./src/controllers/wsVoice');
 const app = express();
 
 // Middlewares
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-arturo-key');
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    next();
+});
 app.use(express.json({ limit: '10mb' })); // v6.2: Aumentado para soportar imágenes Base64 desde la app
 
 // v7: Autenticación por API Key (requerida cuando Arturo está expuesto vía Tailscale Funnel)

@@ -62,7 +62,8 @@ const COOKIES_PATH = process.env.COOKIES_PATH
 // SERVIDOR
 // ============================================================
 const PORT = process.env.PORT
-const ARTURO_API_KEY = process.env.ARTURO_API_KEY
+const ARTURO_API_KEY_MOBILE = process.env.ARTURO_API_KEY_MOBILE
+const ARTURO_API_KEY_DESKTOP = process.env.ARTURO_API_KEY_DESKTOP
 
 // ============================================================
 // Prompts Traidos de el Cerebro
@@ -109,7 +110,8 @@ module.exports = {
     TAVILY_URL,
     PORT,
     PERFIL_RONALD,
-    ARTURO_API_KEY,
+    ARTURO_API_KEY_MOBILE,
+    ARTURO_API_KEY_DESKTOP,
     IMAP_USER,
     IMAP_PASSWORD,
     IMAP_HOST,

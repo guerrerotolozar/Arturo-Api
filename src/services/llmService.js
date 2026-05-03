@@ -1,35 +1,28 @@
 /**
- * llmService.js v5 — Limpio, Modular, y SOLID.
- * Solo contiene lógica de wrappers para hablar con Ollama invocando prompts externos.
- * Las heurísticas de texto se mudaron a src/utils/textHeuristics.js
+ * llmService.js v6 — Post-Auditoría.
+ *
+ * Funciones VIVAS:
+ *   - consultarIAFast   → Respuesta directa (Fast-Path del agente)
+ *   - orquestarTareas   → Genera plan JSON de herramientas
+ *   - sintetizarRespuestaAgente → Sintetiza resultados de tools
+ *   - analizarIntenciones → Clasificación de notas del Inbox
+ *   - verificarFusion   → Verifica si dos notas son fusionables
+ *
+ * ELIMINADO en esta versión:
+ *   - necesitaInternet() — Solo la usaba consultaHibridaUseCase (eliminado)
+ *   - consultarIA()      — Solo la usaba consultaHibridaUseCase (eliminado)
+ *   - clasificarIdea()   — Solo la usaba ingestionIdeaUseCase (eliminado)
  */
 const { llamarOllama } = require('../adapters/ollamaAdapter');
 const { obtenerPrompt } = require('../utils/promptManager');
-const { OLLAMA_MODEL_FAST, OLLAMA_MODEL_DEEP, PERFIL_RONALD } = require('../config/env');
-const { esPreguntaSimple, tieneSenalesWeb } = require('../utils/textHeuristics');
+const { OLLAMA_MODEL_FAST, PERFIL_RONALD } = require('../config/env');
 const { extraerJSONValido } = require('../utils/jsonExtractor');
 
-// ── Clasificación de intención (UX Web) ──────────
-
-async function necesitaInternet(pregunta) {
-    if (tieneSenalesWeb(pregunta)) {
-        console.log('[INTENT] Señal explicita → SI web.');
-        return true;
-    }
-    const promptDefecto = `Determina si esta pregunta necesita datos actualizados de internet.\nSI: tiempo real, temporalidad reciente, mercados actuales.\nNO: conceptos estables, preguntas sobre notas propias.\nResponde UNICAMENTE "SI" o "NO".`;
-    const promptBase = obtenerPrompt('necesita_internet.md', promptDefecto);
-    const prompt = `${promptBase}\nPregunta: "${pregunta}"`;
-    try {
-        const r = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
-        return r.trim().toUpperCase().startsWith('SI');
-    } catch { return false; }
-}
-
-// ── Motores de Respuesta Directa ────────────────────────────────
+// ── Motor de Respuesta Directa ────────────────────────────────
 
 async function consultarIAFast(pregunta, origen = '', historial = []) {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
-    const identidad = obtenerPrompt('ia_fast.md', `Eres Arturo V7, el Segundo Cerebro de Ronald. Responde en español. Tono directo. Max 3 parrafos.`);
+    const identidad = obtenerPrompt('ia_fast.md', `Eres Arturo V8.5, el Segundo Cerebro de Ronald. Responde en español. Tono directo. Adapta la longitud a la complejidad de la pregunta.`);
     
     // Construir bloque de historial
     let bloqueHistorial = '';
@@ -41,9 +34,6 @@ async function consultarIAFast(pregunta, origen = '', historial = []) {
         bloqueHistorial = `\n=== HISTORIAL RECIENTE ===\n${lineas}\n=== FIN HISTORIAL ===\n`;
     }
 
-    if (esPreguntaSimple(pregunta)) {
-        return llamarOllama(`${identidad}\n${contextoOrigen}${bloqueHistorial}\nResponde directo y breve, max 2 lineas.\nPregunta: "${pregunta}"\nRespuesta:`, OLLAMA_MODEL_FAST);
-    }
     return llamarOllama(`${identidad}\n${contextoOrigen}${bloqueHistorial}\nPregunta: "${pregunta}"\nRespuesta:`, OLLAMA_MODEL_FAST);
 }
 
@@ -53,7 +43,7 @@ const { generarDescripcionHerramientas } = require('../tools');
 
 async function orquestarTareas(pregunta, historial = []) {
     const herramientas = generarDescripcionHerramientas();
-    const promptDefecto = `Eres Arturo V7, Orquestador del Segundo Cerebro. Planifica herramientas en JSON estricto. NUNCA respondas la pregunta.
+    const promptDefecto = `Eres Arturo V8.5, Orquestador del Segundo Cerebro. Planifica herramientas en JSON estricto. NUNCA respondas la pregunta.
 Proceso: 1.Asociar(vault_search) 2.Actuar 3.Persistir(vault_append) 4.Escalar(deep_analysis si es complejo) 5.respuesta_directa solo para charla casual.
 JSON estricto. Claves con comillas dobles.`;
 
@@ -71,19 +61,15 @@ JSON estricto. Claves con comillas dobles.`;
 
     const prompt = `${promptBase}\nHerramientas disponibles:\n${herramientas}${bloqueHistorial}\n\nPeticion: "${pregunta}"`;
     
-    // REPARACIÓN CRÍTICA: Ahora que usamos qwen2.5:3b (no-reasoning),
-    // PODEMOS devolverle el bozal JSON a Ollama. Esto hace que sea MATEMÁTICAMENTE
-    // IMPOSIBLE que la IA escupa caracteres chinos, ya que Ollama rebotará 
-    // a nivel del motor cualquier letra que rompa el JSON estricto.
     const raw = await llamarOllama(prompt, OLLAMA_MODEL_FAST, 'json');
     
     // Guardrail: Extractor quirúrgico por conteo de llaves.
-    // Aísla el primer JSON completo y descarta alucinaciones (ChatML, chino, etc.)
     const jsonLimpio = extraerJSONValido(raw);
 
     if (!jsonLimpio) {
-        console.error('[GUARDRAIL ALERT] No se encontró JSON válido en la respuesta del orquestador.\nRespuesta Cruda:', raw);
-        return { tareas: [] };
+        console.error('[GUARDRAIL ALERT] ⚠️ No se encontró JSON válido en la respuesta del orquestador.');
+        console.error('[GUARDRAIL ALERT] Respuesta cruda (primeros 300 chars):', raw.substring(0, 300));
+        return { tareas: [{ herramienta: 'respuesta_directa', parametros: {} }] };
     }
 
     try { 
@@ -97,7 +83,7 @@ JSON estricto. Claves con comillas dobles.`;
 
 async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '', historial = []) {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
-    const promptDefecto = `Eres Arturo V7, el Segundo Cerebro de Ronald. Sintetiza los datos de las herramientas en una respuesta directa. Si guardaste algo, confirma brevemente. Si encontraste recuerdos, conéctalos. Máximo 3-4 puntos clave.`;
+    const promptDefecto = `Eres Arturo V8.5, el Segundo Cerebro de Ronald. Antes de responder, razona: ¿qué puedes inferir o calcular con estos datos? Luego sintetiza de forma natural. Si guardaste algo, confirma brevemente. Si encontraste recuerdos, conéctalos.`;
     const promptBase = obtenerPrompt('sintetizador_agente.md', promptDefecto);
 
     // Inyectar historial para que la síntesis tenga contexto
@@ -112,27 +98,6 @@ async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '',
 
     const prompt = `${promptBase}\n\n${contextoOrigen}${bloqueHistorial}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
     return llamarOllama(prompt, OLLAMA_MODEL_FAST);
-}
-
-// ── RAG + Web (Híbrido) ───────────────────────────────────────────────────────
-
-async function consultarIA(pregunta, fragmentosVault, datosWeb, fechaHora) {
-    const bloqueVault = fragmentosVault.length > 0
-        ? `\n${fragmentosVault.map((f, i) => `[${i+1}] ${f.fuente}\n${f.texto}`).join('\n\n')}\n`
-        : 'Sin contexto local.';
-    const bloqueWeb = datosWeb
-        ? `\n${datosWeb.answer ? `Resumen: ${datosWeb.answer}\n` : ''}${datosWeb.results.map(r => `${r.title}\n${r.content}`).join('\n')}\n`
-        : 'Sin contexto web.';
-        
-    const promptDefecto = `Eres IA Híbrida. Usa los datos a continuación para responder la pregunta técnica.`;
-    let promptBase = obtenerPrompt('consultar_ia_rag.md', promptDefecto);
-    
-    // Inyectar el perfil de Ronald explícitamente porque es un reemplazo dinámico de variable
-    promptBase = promptBase.replace('---PERFIL_RONALD---', PERFIL_RONALD || 'Actúa como asistente.');
-    
-    const prompt = `${promptBase}\n\nFecha Local: ${fechaHora}\n\n=== CONTEXTO DE BÓVEDA ===${bloqueVault}\n=== CONTEXTO DE INTERNET ===${bloqueWeb}\n=== FIN CONTEXTOS ===\n\nPregunta: "${pregunta}"\n\nRespuesta:`;
-    
-    return llamarOllama(prompt, OLLAMA_MODEL_DEEP);
 }
 
 // ── Inbox: Análisis y Fusión ───────────────────────────────────────────
@@ -164,32 +129,10 @@ async function verificarFusion(textoInbox, textoCandidato, nombreCandidato) {
     } catch { return false; }
 }
 
-// ── Categorización de Ideas ───────────────────────────────────────────────
-
-async function clasificarIdea(idea, categorias) {
-    const promptDefecto = `Propone UN nombre de categoria PascalCase.`;
-    const promptBase = obtenerPrompt('clasificar_idea.md', promptDefecto);
-    const categoriasTxt = categorias.length === 0 ? "Ninguna, debes crearla." : categorias.join(', ');
-    const prompt = `${promptBase}\n\nIDEA: "${idea}"\nCATEGORÍAS ACTUALES: ${categoriasTxt}\n\nCategoría:`;
-    try {
-        const r = await llamarOllama(prompt, OLLAMA_MODEL_FAST);
-        const limpia = r.split('\n')[0].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ]/g, '').trim();
-        if (!limpia) return 'Inbox';
-        if (categorias.length > 0) {
-            const match = categorias.find(c => c.toLowerCase() === limpia.toLowerCase()) || categorias.find(c => limpia.toLowerCase().includes(c.toLowerCase()));
-            if (match) return match;
-        }
-        return limpia;
-    } catch { return 'Inbox'; }
-}
-
 module.exports = {
-    necesitaInternet,
     consultarIAFast,
-    consultarIA,
     orquestarTareas,
     sintetizarRespuestaAgente,
     analizarIntenciones,
     verificarFusion,
-    clasificarIdea,
 };

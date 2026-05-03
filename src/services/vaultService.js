@@ -28,48 +28,6 @@ function obtenerCategorias() {
 }
 
 /**
- * Appends una idea categorizada a su nota destino.
- * Si la nota no existe, la crea en /Inbox/ con frontmatter.
- *
- * @param {string} categoria
- * @param {string} idea
- * @param {string} timestamp
- * @param {string|null} rutaEspecifica
- */
-function escribirIdeaEnVault(categoria, idea, timestamp, rutaEspecifica = null) {
-    let destino;
-
-    if (rutaEspecifica) {
-        destino = path.join(VAULT_PATH, rutaEspecifica);
-        asegurarDirectorio(path.dirname(destino));
-    } else {
-        const notaReal = leerVaultRecursivo().find(n => n.nombre.toLowerCase() === categoria.toLowerCase());
-
-        if (notaReal) {
-            destino = path.join(VAULT_PATH, notaReal.ruta);
-        } else {
-            const inboxDir = path.join(VAULT_PATH, 'Inbox');
-            asegurarDirectorio(inboxDir);
-            destino = path.join(inboxDir, `${categoria}.md`);
-
-            if (!existeArchivo(destino)) {
-                const fm = [
-                    '---', `tipo: categoria_nueva`, `creado: ${timestamp}`,
-                    `fuente: webhook_cerebro`, `revisado: false`,
-                    '---', `# ${categoria}`, '',
-                    '> Nota creada automaticamente por Arturo.', ''
-                ].join('\n');
-                escribirArchivo(destino, fm);
-                console.log(`[VAULT] Nueva categoria: Inbox/${categoria}.md`);
-            }
-        }
-    }
-
-    appendArchivo(destino, `\n- [${timestamp}] ${idea}`);
-    console.log(`[VAULT] Idea guardada en: ${destino.replace(VAULT_PATH, '')}`);
-}
-
-/**
  * Crea una nota .md completa con frontmatter.
  * Retorna { ruta, creada } — el use-case decide cómo reportarlo.
  */
@@ -92,4 +50,4 @@ function crearNotaEstructurada({ titulo, contenido, carpeta = 'Inbox', tipo = 'n
     return { ruta: `${carpeta}/${nombreArchivo}.md`, creada: true };
 }
 
-module.exports = { obtenerCategorias, escribirIdeaEnVault, crearNotaEstructurada };
+module.exports = { obtenerCategorias, crearNotaEstructurada };

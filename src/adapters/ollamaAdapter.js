@@ -15,7 +15,7 @@
 
 const { OLLAMA_URL, OLLAMA_MODEL_EMBED } = require('../config/env');
 
-const OLLAMA_TIMEOUT_MS = 300_000; // 5 minutos máx por llamada para modelos profundos/lentos
+const OLLAMA_TIMEOUT_MS = 900_000; // 15 min — safety net contra cuelgues reales, no contra modelos lentos
 
 /**
  * Envía un prompt a Ollama usando STREAMING y acumula la respuesta.
@@ -26,9 +26,10 @@ const OLLAMA_TIMEOUT_MS = 300_000; // 5 minutos máx por llamada para modelos pr
  * @param {string|null} formato - "json" para forzar salida JSON estructurada
  * @returns {Promise<string>}
  */
-async function llamarOllama(prompt, modelo, formato = null) {
+async function llamarOllama(prompt, modelo, formato = null, images = null) {
     const body = { model: modelo, prompt, stream: true };
     if (formato) body.format = formato;
+    if (images) body.images = images;
 
     // AbortController: si Ollama no termina en 2 min, cortamos limpio
     const controller = new AbortController();

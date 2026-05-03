@@ -1,35 +1,39 @@
 /**
  * textHeuristics.js
  * 
- * Centraliza la lógica de Regex y heurísticas de texto plano.
- * Así se mantiene al llmService.js completamente aislado y enfocado solo en Ollama.
+ * Heurísticas de texto ULTRA-CONSERVADORAS.
+ * 
+ * FILOSOFÍA V8.5: La IA decide, no nosotros. Estas heurísticas solo
+ * atajan los casos TRIVIALES (saludos de 1-2 palabras) para ahorrar
+ * una llamada al orquestador (~90s). Todo lo demás pasa al modelo.
+ * 
+ * REGLA: Si hay ALGUNA duda de si es simple o no, NO es simple.
  */
 
-const SENALES_WEB = [
-    /busca en internet/i, /busca en la web/i, /googlea/i,
-    /hoy en dia/i, /precio[s]? actual/i, /precio[s]? hoy/i,
-    /cuanto vale[n]? hoy/i, /marcas actuales/i, /ahora mismo/i,
-    /noticias de hoy/i, /cotizacion actual/i, /tasa de cambio/i,
-];
-
-const PATRONES_SIMPLE = [
-    /^[\d\s\+\-\*\/\(\)\^%=.,]+\??\s*$/, /\d+\s*[\+\-\*\/x]\s*\d+/,
-    /^(hola|buenas|hey|quiubo|hi)[^a-z]*$/i,
-    /^(gracias|listo|ok|perfecto|dale)[^a-z]*$/i,
-];
-
+/**
+ * Detecta SOLO saludos y confirmaciones triviales de 1-3 palabras.
+ * Si devuelve true, se salta el orquestador y va directo al chat.
+ * 
+ * CONSERVADORA A PROPÓSITO: es mejor llamar al orquestador de más
+ * que perder una pregunta real. El modelo Fast puede manejar saludos
+ * también, solo tarda un poco más.
+ */
 function esPreguntaSimple(pregunta) {
-    if (PATRONES_SIMPLE.some(p => p.test(pregunta.trim()))) return true;
-    const palabras = pregunta.trim().split(/\s+/).length;
-    const profundo = ['explica','como funciona','por que','diferencia','analiza','resume'];
-    return palabras <= 7 && !profundo.some(p => pregunta.toLowerCase().includes(p));
-}
+    const limpia = pregunta.trim().toLowerCase();
+    const palabras = limpia.split(/\s+/).length;
 
-function tieneSenalesWeb(pregunta) {
-    return SENALES_WEB.some(r => r.test(pregunta));
+    // Solo interceptar si tiene 3 palabras o menos
+    if (palabras > 3) return false;
+
+    // Saludos y despedidas
+    if (/^(hola|buenas|hey|quiubo|hi|ey|epa|yo)[!?.,\s]*$/i.test(limpia)) return true;
+
+    // Confirmaciones
+    if (/^(gracias|listo|ok|perfecto|dale|vale|sí|si|no|chao|bye)[!?.,\s]*$/i.test(limpia)) return true;
+
+    return false;
 }
 
 module.exports = {
-    esPreguntaSimple,
-    tieneSenalesWeb
+    esPreguntaSimple
 };

@@ -12,7 +12,7 @@
  *   - ejecutar:    async (params) => { resumen: string, datos?: any }
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 // Auto-scan: carga todos los archivos que terminan en "Tool.js" en esta carpeta.
@@ -27,7 +27,6 @@ const tools = fs
             console.warn(`[TOOLS] ${f} no cumple el contrato {nombre, descripcion, ejecutar}. Ignorando.`);
             return null;
         }
-        return tool;
         return tool;
     })
     .filter(Boolean);

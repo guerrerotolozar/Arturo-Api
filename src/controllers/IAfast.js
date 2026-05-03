@@ -6,10 +6,12 @@
  *
  * v6.2: Pre-procesamiento proactivo de imágenes (Base64 desde la app Android).
  *       Si llega imagen, se analiza con Vision ANTES de orquestar herramientas.
+ * v8.6: Soporte de video — extrae frames + audio (Whisper) para contexto completo.
  */
 
 const { ejecutarAgenteRapido } = require('../use-cases/agenteRapidoUseCase');
 const { analizarImagen } = require('../adapters/visionAdapter');
+const { procesarVideo } = require('../adapters/videoAdapter');
 const { OLLAMA_MODEL_FAST } = require('../config/env');
 const { guardarMensaje, obtenerHistorial, actualizarTitulo, crearChat } = require('../repositories/chatRepository');
 const { limpiarFormato } = require('../utils/limpiarFormato');
@@ -44,8 +46,8 @@ function liberarCandadoGlobal() {
 }
 
 async function consultaIAFast(req, res) {
-    const { pregunta, origen, imagen_b64, chatId } = req.body;
-    if (!pregunta && !imagen_b64) return res.status(400).json({ error: 'Falta la pregunta o imagen.' });
+    const { pregunta, origen, imagen_b64, video_b64, chatId } = req.body;
+    if (!pregunta && !imagen_b64 && !video_b64) return res.status(400).json({ error: 'Falta la pregunta, imagen o video.' });
 
     const etiquetaOrigen = origen ? `Ronald/${origen}` : 'AGENTE';
     console.log(`\n[${etiquetaOrigen}] Peticion: "${pregunta || '(imagen sin texto)'}"`);
@@ -75,11 +77,38 @@ async function consultaIAFast(req, res) {
             res.write(': keepalive\n\n');
         }, 15000);
 
-        // ── Pre-procesamiento proactivo de imagen ──
+        // ── Pre-procesamiento proactivo de multimedia ──
         let preguntaEnriquecida = pregunta || '';
 
         try {
-            if (imagen_b64) {
+            // ── VIDEO ──
+            if (video_b64) {
+                enviarEstado('Procesando video...');
+                const sizeMB = (video_b64.length * 0.75 / 1024 / 1024).toFixed(1);
+                console.log(`[VIDEO] Recibido video (~${sizeMB} MB)`);
+                try {
+                    const resultado = await procesarVideo(video_b64, enviarEstado);
+                    console.log(`[VIDEO] Procesamiento completo ✔️ ${tick()}`);
+
+                    let contexto = '';
+                    if (resultado.contextoVisual) {
+                        contexto += `[CONTENIDO VISUAL del video adjunto:\n${resultado.contextoVisual}]\n`;
+                    }
+                    if (resultado.transcripcion) {
+                        contexto += `[AUDIO/DIÁLOGO del video: ${resultado.transcripcion}]\n`;
+                    }
+
+                    preguntaEnriquecida = contexto
+                        ? `${contexto}\nPetición de Ronald: ${preguntaEnriquecida || '¿De qué trata este video?'}`
+                        : preguntaEnriquecida;
+                } catch (videoErr) {
+                    console.warn(`[VIDEO] Fallo en procesamiento: ${videoErr.message} ${tick()}`);
+                    enviarEstado('Error procesando video, continuando sin contexto visual...');
+                }
+            }
+
+            // ── IMAGEN ──
+            if (imagen_b64 && !video_b64) {
                 enviarEstado('Analizando imagen...');
                 console.log(`[VISION PRE] Imagen recibida (${Math.round(imagen_b64.length / 1024)} KB b64). Analizando...`);
                 try {

@@ -28,7 +28,7 @@ app.use((req, res, next) => {
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
-app.use(express.json({ limit: '10mb' })); // v6.2: Aumentado para soportar imágenes Base64 desde la app
+app.use(express.json({ limit: '50mb' })); // v8.6: Aumentado para soportar videos Base64
 
 // v7: Autenticación por API Key (requerida cuando Arturo está expuesto vía Tailscale Funnel)
 const authGuard = require('./src/middlewares/authGuard');

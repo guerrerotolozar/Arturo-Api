@@ -20,25 +20,30 @@ async function transcribirAudio(audioBuffer) {
     fs.writeFileSync(tmpPath, audioBuffer);
 
     return new Promise((resolve, reject) => {
-        const proc = spawn(WHISPER_BIN, [
-            '-m', WHISPER_MODEL,
-            '-f', tmpPath,
-            '-l', 'auto',
-            '--output-txt', '--no-timestamps', '--print-special', 'false'
-        ]);
+        let proc;
+        try {
+            proc = spawn(WHISPER_BIN, [
+                '-m', WHISPER_MODEL,
+                '-f', tmpPath,
+                '-l', 'auto',
+                '--output-txt', '--no-timestamps', '--print-special', 'false'
+            ]);
+        } catch (e) {
+            try { fs.unlinkSync(tmpPath); } catch {}
+            return reject(new Error(`Whisper no disponible: ${e.message}`));
+        }
+
         let texto = '';
         proc.stdout.on('data', d => texto += d.toString());
+
+        // Capturar ENOENT y otros errores de spawn
+        proc.on('error', err => {
+            try { fs.unlinkSync(tmpPath); } catch {}
+            reject(new Error(`Whisper no disponible: ${err.message}`));
+        });
+
         proc.on('close', code => {
-            // Cambiar esto:
-            // unlinkSync(tmpPath);
-
-            // Por esto (seguro):
-            try {
-                fs.unlinkSync(tmpPath);
-            } catch (e) {
-                console.warn(`No se pudo borrar temporal ${tmpPath}:`, e.message);
-            }
-
+            try { fs.unlinkSync(tmpPath); } catch {}
             code === 0 ? resolve(texto.trim()) : reject(new Error(`Whisper exit ${code}`));
         });
     });

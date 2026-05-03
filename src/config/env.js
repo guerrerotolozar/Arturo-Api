@@ -25,6 +25,11 @@ const OLLAMA_MODEL_DEEP = process.env.OLLAMA_MODEL_DEEP
 const OLLAMA_MODEL_EMBED = process.env.OLLAMA_MODEL_EMBED
 const OLLAMA_MODEL_VISION = process.env.OLLAMA_MODEL_VISION
 
+// Flag para habilitar/deshabilitar el intento del modelo Deep.
+// En false: deep_analysis usa directamente el Fast con prompt enriquecido (sin esperar timeout).
+// Cuando llegue la RTX 5060 Ti, cambiar a true en .env.
+const DEEP_ANALYSIS_ENABLED = (process.env.DEEP_ANALYSIS_ENABLED || 'false').toLowerCase() === 'true'
+
 // ============================================================
 // WHISPER
 // ============================================================
@@ -98,6 +103,7 @@ module.exports = {
     OLLAMA_URL,
     OLLAMA_MODEL_FAST,
     OLLAMA_MODEL_DEEP,
+    DEEP_ANALYSIS_ENABLED,
     OLLAMA_MODEL_EMBED,
     PROMPTS_PATH,
     OLLAMA_MODEL_VISION,

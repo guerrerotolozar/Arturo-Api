@@ -96,6 +96,15 @@ async function ejecutarAgenteRapido(pregunta, origen = '', onProgress = () => {}
                 }
             }
 
+            // v8.5: deep_analysis SIEMPRE recibe los datos acumulados.
+            // El orquestador (4B) no es confiable con placeholders.
+            // Si hay datos de tools previas (ej: systemInfoTool), 
+            // se inyectan en el contexto para que el análisis los use.
+            if (tarea.herramienta === 'deep_analysis' && datosAcumulados.length > 0) {
+                tarea.parametros = tarea.parametros || {};
+                tarea.parametros.contexto = datosAcumulados + '\n' + (tarea.parametros.contexto || '');
+            }
+
             const resultadoHerramienta = await tool.ejecutar(tarea.parametros, onProgress);
             console.log(`[TOOL ${tarea.herramienta}] Completada ✔️ [ ${((Date.now() - tToolStart)/1000).toFixed(2)}s ]`);
             

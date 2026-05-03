@@ -12,6 +12,7 @@ const { ejecutarAgenteRapido } = require('../use-cases/agenteRapidoUseCase');
 const { analizarImagen } = require('../adapters/visionAdapter');
 const { OLLAMA_MODEL_FAST } = require('../config/env');
 const { guardarMensaje, obtenerHistorial, actualizarTitulo, crearChat } = require('../repositories/chatRepository');
+const { limpiarFormato } = require('../utils/limpiarFormato');
 
 // ============================================================================
 // CANDADO GLOBAL DE VRAM (Cola de peticiones)
@@ -106,12 +107,15 @@ async function consultaIAFast(req, res) {
             const resultado = await ejecutarAgenteRapido(preguntaEnriquecida, origen, enviarEstado, historial);
             console.log(`[AGENTE] Ejecución total Agente ✔️ ${tick()}`);
 
+            // v8.5: Filtro anti-LaTeX — limpia \text{}, $...$ y demás basura académica
+            const respuestaLimpia = limpiarFormato(resultado.respuesta);
+
             const respuestaId = chatId || `chat_${Date.now()}`;
 
             res.write(`data: ${JSON.stringify({
                 tipo: 'final',
                 pregunta: pregunta || '(imagen)',
-                respuesta:              resultado.respuesta,
+                respuesta:              respuestaLimpia,
                 motor_usado:            `${OLLAMA_MODEL_FAST} (Modo Agente)`,
                 herramientas_activadas: resultado.herramientas,
                 plan_interno:           resultado.plan,

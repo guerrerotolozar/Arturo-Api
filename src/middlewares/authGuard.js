@@ -2,7 +2,10 @@
  * authGuard.js — Middleware de autenticación por API Key.
  *
  * Soporta múltiples keys para identificar el dispositivo en logs.
- * Si no hay key configurada o la petición viene de localhost, pasa sin auth.
+ * Si no hay keys configuradas, pasa sin auth (modo desarrollo).
+ *
+ * v2 (Post-Auditoría): Cerrada la puerta trasera. Requests sin header
+ * X-Arturo-Key ahora son BLOQUEADAS (antes pasaban libres).
  */
 
 const { ARTURO_API_KEY_MOBILE, ARTURO_API_KEY_DESKTOP } = require('../config/env');
@@ -20,13 +23,13 @@ function authGuard(req, res, next) {
 
     const clientKey = req.headers['x-arturo-key'];
 
-    // Sin key → detectar por origen (backward compatible con la app Android)
+    // Sin key → bloquear
     if (!clientKey) {
-        // La app del celular envía el campo "origen" en el body, 
-        // y puede no tener header de auth configurado aún.
-        // Dejamos pasar pero sin etiquetar dispositivo
-        req.dispositivoOrigen = req.body?.origen || 'Desconocido';
-        return next();
+        logBloqueo(req);
+        return res.status(401).json({
+            error: 'No autorizado',
+            mensaje: 'Falta el header X-Arturo-Key.'
+        });
     }
 
     // Identificar dispositivo según la key

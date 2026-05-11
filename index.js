@@ -17,6 +17,8 @@ const downloadDirecto = require('./src/controllers/download');
 const { listarChatsController, eliminarChatController, obtenerMensajesController } = require('./src/controllers/chats');
 const { syncVectoresController, estadoVectoresController, estadoVRAMController, liberarVRAMController } = require('./src/controllers/vectores');
 const { iniciarWSVoz } = require('./src/controllers/wsVoice');
+const { enviarNotificacion, obtenerNotificaciones, streamNotificaciones } = require('./src/controllers/notificaciones');
+const bancolombiaService = require('./src/services/bancolombiaService');
 
 const app = express();
 
@@ -63,18 +65,27 @@ app.get('/IA/vectores/estado', estadoVectoresController);  // Estado de LanceDB
 app.get('/IA/vram/estado', estadoVRAMController);          // Modelos cargados en VRAM
 app.post('/IA/vram/liberar', liberarVRAMController);       // Liberar VRAM (descargar pesados)
 
+// 6. Notificaciones Push (Bot Trading → App Android)
+app.post('/IA/notify', enviarNotificacion);                  // Encolar notificación
+app.get('/IA/notifications', obtenerNotificaciones);         // Recoger pendientes (polling fallback)
+app.get('/IA/notifications/stream', streamNotificaciones);   // SSE en tiempo real (push instantáneo)
+
 // ============================================================
 // INICIO DEL SERVIDOR 
 // ============================================================
+const { tools } = require('./src/tools');
+
 const server = app.listen(PORT, () => {
-    console.log(`\n==================================================`);
-    console.log(`[SERVIDOR] 🧠 Arturo V8 (SOLID) despertó.`);
-    console.log(`[SERVIDOR] Escuchando en el puerto ${PORT}`);
-    console.log(`==================================================\n`);
+    console.log('');
+    console.log('  ╔══════════════════════════════════════════════╗');
+    console.log('  ║                    Arturo                    ║');
+    console.log('  ╠══════════════════════════════════════════════╣');
+    console.log(`  ║  Puerto:        ${PORT}                         ║`);
+    console.log(`  ║  Herramientas:  ${String(tools.length).padEnd(2)} cargadas                  ║`);
+    console.log(`  ║  Servicios:     IMAP · WS Voz · Media        ║`);
+    console.log('  ╚══════════════════════════════════════════════╝');
+    console.log('');
 });
 
 iniciarWSVoz(server);
-
-// Inicializar el servicio de Gastos Bancolombia (IMAP)
-const bancolombiaService = require('./src/services/bancolombiaService');
 bancolombiaService.init();

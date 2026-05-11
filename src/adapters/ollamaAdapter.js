@@ -27,7 +27,12 @@ const OLLAMA_TIMEOUT_MS = 900_000; // 15 min — safety net contra cuelgues real
  * @returns {Promise<string>}
  */
 async function llamarOllama(prompt, modelo, formato = null, images = null) {
-    const body = { model: modelo, prompt, stream: true };
+    const body = { 
+        model: modelo, 
+        prompt, 
+        stream: true,
+        options: { num_ctx: 8192 } // Límite seguro para tu hardware actual. Evita crasheos de memoria.
+    };
     if (formato) body.format = formato;
     if (images) body.images = images;
 

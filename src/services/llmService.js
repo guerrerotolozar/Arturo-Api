@@ -18,10 +18,37 @@ const { obtenerPrompt } = require('../utils/promptManager');
 const { OLLAMA_MODEL_FAST, PERFIL_RONALD } = require('../config/env');
 const { extraerJSONValido } = require('../utils/jsonExtractor');
 
+// ── Contexto Temporal (Sentido del Día) ───────────────────────
+
+const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/**
+ * Genera un bloque de contexto temporal para inyectar en cada prompt.
+ * Arturo siempre sabe qué día/hora es sin necesidad de herramientas externas.
+ */
+function generarContextoTemporal() {
+    const ahora = new Date();
+    // Colombia = UTC-5
+    const colombiaOffset = -5 * 60;
+    const utcMs = ahora.getTime() + (ahora.getTimezoneOffset() * 60000);
+    const colombia = new Date(utcMs + (colombiaOffset * 60000));
+
+    const dia = DIAS_SEMANA[colombia.getDay()];
+    const fecha = `${colombia.getDate()} de ${MESES[colombia.getMonth()]} de ${colombia.getFullYear()}`;
+    const hora = colombia.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true });
+    
+    const h = colombia.getHours();
+    const momento = h < 6 ? 'madrugada' : h < 12 ? 'mañana' : h < 18 ? 'tarde' : 'noche';
+
+    return `[CONTEXTO TEMPORAL: Hoy es ${dia} ${fecha}, son las ${hora} de la ${momento} en Colombia]`;
+}
+
 // ── Motor de Respuesta Directa ────────────────────────────────
 
 async function consultarIAFast(pregunta, origen = '', historial = []) {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
+    const contextoTemporal = generarContextoTemporal();
     const identidad = obtenerPrompt('ia_fast.md', `Eres Arturo V8.5, el Segundo Cerebro de Ronald. Responde en español. Tono directo. Adapta la longitud a la complejidad de la pregunta.`);
     
     // Construir bloque de historial
@@ -34,7 +61,7 @@ async function consultarIAFast(pregunta, origen = '', historial = []) {
         bloqueHistorial = `\n=== HISTORIAL RECIENTE ===\n${lineas}\n=== FIN HISTORIAL ===\n`;
     }
 
-    return llamarOllama(`${identidad}\n${contextoOrigen}${bloqueHistorial}\nPregunta: "${pregunta}"\nRespuesta:`, OLLAMA_MODEL_FAST);
+    return llamarOllama(`${identidad}\n${contextoTemporal}\n${contextoOrigen}${bloqueHistorial}\nPregunta: "${pregunta}"\nRespuesta:`, OLLAMA_MODEL_FAST);
 }
 
 // ── Orquestador de Agente Tool-Calling ───────────────────────────────
@@ -43,6 +70,7 @@ const { generarDescripcionHerramientas } = require('../tools');
 
 async function orquestarTareas(pregunta, historial = []) {
     const herramientas = generarDescripcionHerramientas();
+    const contextoTemporal = generarContextoTemporal();
     const promptDefecto = `Eres Arturo V8.5, Orquestador del Segundo Cerebro. Planifica herramientas en JSON estricto. NUNCA respondas la pregunta.
 Proceso: 1.Asociar(vault_search) 2.Actuar 3.Persistir(vault_append) 4.Escalar(deep_analysis si es complejo) 5.respuesta_directa solo para charla casual.
 JSON estricto. Claves con comillas dobles.`;
@@ -59,7 +87,7 @@ JSON estricto. Claves con comillas dobles.`;
         bloqueHistorial = `\n=== HISTORIAL DE CONVERSACIÓN ===\n${lineas}\n=== FIN HISTORIAL ===\n`;
     }
 
-    const prompt = `${promptBase}\nHerramientas disponibles:\n${herramientas}${bloqueHistorial}\n\nPeticion: "${pregunta}"`;
+    const prompt = `${promptBase}\n${contextoTemporal}\nHerramientas disponibles:\n${herramientas}${bloqueHistorial}\n\nPeticion: "${pregunta}"`;
     
     const raw = await llamarOllama(prompt, OLLAMA_MODEL_FAST, 'json');
     
@@ -83,6 +111,7 @@ JSON estricto. Claves con comillas dobles.`;
 
 async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '', historial = []) {
     const contextoOrigen = origen ? `[METADATA: Estás hablando con Ronald. Dispositivo actual: ${origen}]\n` : '';
+    const contextoTemporal = generarContextoTemporal();
     const promptDefecto = `Eres Arturo V8.5, el Segundo Cerebro de Ronald. Antes de responder, razona: ¿qué puedes inferir o calcular con estos datos? Luego sintetiza de forma natural. Si guardaste algo, confirma brevemente. Si encontraste recuerdos, conéctalos.`;
     const promptBase = obtenerPrompt('sintetizador_agente.md', promptDefecto);
 
@@ -96,7 +125,7 @@ async function sintetizarRespuestaAgente(pregunta, datosAcumulados, origen = '',
         bloqueHistorial = `\nConversación previa:\n${lineas}\n---\n`;
     }
 
-    const prompt = `${promptBase}\n\n${contextoOrigen}${bloqueHistorial}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
+    const prompt = `${promptBase}\n\n${contextoTemporal}\n${contextoOrigen}${bloqueHistorial}Datos obtenidos por las herramientas:\n"${datosAcumulados.trim()}"\n\nPregunta original de Ronald: "${pregunta}"\n\nRespuesta:`;
     return llamarOllama(prompt, OLLAMA_MODEL_FAST);
 }
 

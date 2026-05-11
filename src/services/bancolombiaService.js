@@ -21,7 +21,6 @@ class BancolombiaService {
     }
 
     async init() {
-        console.log('[BANCOLOMBIA] 💼 Servicio de IMAP activo en 2do plano.');
         // Registrar el listener ANTES de conectar
         imapAdapter.onMessage(this.handleIncomingEmail.bind(this));
 

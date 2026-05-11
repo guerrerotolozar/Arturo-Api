@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { VAULT_PATH_BOVEDA } = require('../config/env');
+const { VAULT_PATH_BOVEDA } = require('../src/config/env');
 
 // Ruta al archivo de configuración del grafo de Obsidian
 const graphPath = path.join(VAULT_PATH_BOVEDA, '.obsidian', 'graph.json');

@@ -29,22 +29,30 @@ const USER_AGENT   = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'; // UA básico 
 // Asegurar que el directorio de medios exista
 if (!fs.existsSync(MEDIA_DIR)) {
     fs.mkdirSync(MEDIA_DIR, { recursive: true });
-    console.log(`[MEDIA_DOWNLOADER] Directorio de medios creado: ${MEDIA_DIR}`);
 }
 
 // Instancia singleton de YtDlp
 const ytdlp = new YtDlp();
 
-// Verificar cookies al arranque
-if (fs.existsSync(COOKIES_FILE)) {
-    console.log(`[MEDIA_DOWNLOADER] ✔️ Cookies disponibles: ${COOKIES_FILE}`);
-} else {
+// Verificar cookies al arranque (solo alertar si faltan)
+if (!fs.existsSync(COOKIES_FILE)) {
     console.warn(`[MEDIA_DOWNLOADER] ⚠️ Sin cookies: ${COOKIES_FILE} — Instagram podría fallar.`);
 }
 
 // ════════════════════════════════════════════════════════════════════
 // UTILIDADES HTTP (para descargas directas de imágenes)
 // ════════════════════════════════════════════════════════════════════
+
+function getTimestampName() {
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    return `${dd}-${mm}-${yyyy}_${hh}-${min}-${ss}`;
+}
 
 function httpGet(url, headers = {}, maxRedirects = 5) {
     return new Promise((resolve, reject) => {
@@ -144,9 +152,10 @@ async function descargarImagenesInstagram(postId, onProgress) {
 
         const archivosDescargados = [];
         let index = 1;
+        const timestamp = getTimestampName();
         
         // Crear carpeta final para este post
-        const finalDir = path.join(MEDIA_DIR, postId);
+        const finalDir = path.join(MEDIA_DIR, timestamp);
         if (!fs.existsSync(finalDir)) {
             fs.mkdirSync(finalDir, { recursive: true });
         }
@@ -156,8 +165,8 @@ async function descargarImagenesInstagram(postId, onProgress) {
             
             const ext = path.extname(rutaOriginal);
             const nombreArchivo = lineas.length === 1 
-                ? `${postId}${ext}` 
-                : `${postId}_${index}${ext}`;
+                ? `${timestamp}${ext}` 
+                : `${timestamp}_${index}${ext}`;
                 
             const rutaDestino = path.join(finalDir, nombreArchivo);
             
@@ -247,8 +256,9 @@ async function descargarMedia(url, onProgress = () => {}) {
             }
         }
 
-        // Crear subcarpeta para el video usando el ID o un timestamp
-        const idCarpeta = info && info.id ? info.id : `media_${Date.now()}`;
+        // Crear subcarpeta para el video usando el timestamp
+        const timestamp = getTimestampName();
+        const idCarpeta = timestamp;
         const finalDir = path.join(MEDIA_DIR, idCarpeta);
         if (!fs.existsSync(finalDir)) {
             fs.mkdirSync(finalDir, { recursive: true });
@@ -258,7 +268,7 @@ async function descargarMedia(url, onProgress = () => {}) {
         const builder = ytdlp
             .download(urlLimpia)
             .addArgs('-P', finalDir)
-            .addArgs('-o', '%(id)s.%(ext)s')
+            .addArgs('-o', `${timestamp}.%(ext)s`)
             .addArgs('-f', 'bestvideo+bestaudio/best')
             .on('progress', (p) => {
                 if (p.percentage_str) onProgress(`Descargando: ${p.percentage_str}`);

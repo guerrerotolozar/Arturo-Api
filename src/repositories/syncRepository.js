@@ -26,7 +26,7 @@ db.exec(`
     );
 `);
 
-console.log('[MEMORIA] Tabla de estado de sincronización (RAG) inicializada ✔️');
+
 
 // ══════════════════════════════════════════════════════════════════
 // OPERACIONES

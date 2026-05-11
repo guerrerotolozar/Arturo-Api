@@ -31,7 +31,7 @@ const tools = fs
     })
     .filter(Boolean);
 
-console.log(`[TOOLS] 🛠️  ${tools.length} herramientas cargadas correctamente en el Agente.`);
+
 
 // Mapa para lookup O(1) por nombre
 const toolMap = new Map(tools.map(t => [t.nombre, t]));

@@ -42,7 +42,7 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_mensajes_chat ON mensajes(chat_id);
 `);
 
-console.log('[MEMORIA] Base de datos de conversaciones inicializada ✔️');
+
 
 // ══════════════════════════════════════════════════════════════════
 // OPERACIONES CRUD

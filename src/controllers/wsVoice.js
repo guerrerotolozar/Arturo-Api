@@ -15,7 +15,6 @@ const { ejecutarAgenteRapido }  = require('../use-cases/agenteRapidoUseCase');
 
 function iniciarWSVoz(httpServer) {
     const wss = new WebSocket.Server({ server: httpServer, path: '/ws/voice' });
-    console.log('[WS] WebSocket de voz activo en /ws/voice');
 
     wss.on('connection', (ws, req) => {
         console.log(`[WS] Cliente conectado: ${req.socket.remoteAddress}`);

@@ -42,14 +42,19 @@ function registrarEventoSeguridad(req, res) {
 
         // 3. Registrar en la Bóveda de Obsidian si está montada
         try {
-            const boveda = VAULT_PATH_BOVEDA || process.env.VAULT_PATH_BOVEDA || '/home/ronald/ARTURO/Cerebro/Boveda';
-            const segFolder = path.join(boveda, 'Seguridad');
-            if (!fs.existsSync(segFolder)) {
-                fs.mkdirSync(segFolder, { recursive: true });
+            let boveda = VAULT_PATH_BOVEDA || process.env.VAULT_PATH_BOVEDA || '/home/ronald/ARTURO/Cerebro/Boveda';
+            if (!fs.existsSync(boveda) && fs.existsSync('Z:\\Cerebro\\Boveda')) {
+                boveda = 'Z:\\Cerebro\\Boveda';
             }
-            const bitacoraPath = path.join(segFolder, 'Bitacora-Web.md');
-            const markdownEntry = `- **${timestamp}** | \`${origen}\` | \`${ip}\` | **${evento}**: ${detalles}\n`;
-            fs.appendFileSync(bitacoraPath, markdownEntry, 'utf8');
+            if (fs.existsSync(boveda)) {
+                const segFolder = path.join(boveda, 'Seguridad');
+                if (!fs.existsSync(segFolder)) {
+                    fs.mkdirSync(segFolder, { recursive: true });
+                }
+                const bitacoraPath = path.join(segFolder, 'Bitacora-Web.md');
+                const markdownEntry = `- **${timestamp}** | \`${origen}\` | \`${ip}\` | **${evento}**: ${detalles}\n`;
+                fs.appendFileSync(bitacoraPath, markdownEntry, 'utf8');
+            }
         } catch (vaultErr) {
             // Falla silenciosa si la bóveda no está lista; nunca romper la respuesta
             console.warn('[SECURITY_LOG] Bóveda no accesible para bitácora:', vaultErr.message);

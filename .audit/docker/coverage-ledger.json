@@ -1,0 +1,191 @@
+[
+  {
+    "coverage_id": "docker-compose.yml#docker-proxy::docker-compose.yml#arturo-net::docker-compose.yml::ATTACK-CLASSES.md#Container escape",
+    "canonical_refs": {
+      "surface": "docker-compose.yml#docker-proxy",
+      "boundary": "docker-compose.yml#arturo-net bridge",
+      "subsystem": "docker-compose.yml",
+      "attack_class": "ATTACK-CLASSES.md#Container escape"
+    },
+    "surface": "docker-compose.yml#docker-proxy",
+    "boundary": "docker-compose.yml#arturo-net bridge",
+    "subsystem": "docker-compose.yml",
+    "attack_class": "ATTACK-CLASSES.md#Container escape",
+    "starting_paths": [
+      "docker-compose.yml"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Container escape",
+    "selected_companion_blocks": [
+      "CLOUD-AND-DEPLOYMENT.md#Container and namespace boundaries",
+      "CLOUD-AND-DEPLOYMENT.md#Core discipline"
+    ],
+    "excluded_blocks": [],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "verifier-indep",
+    "reviewed_paths": [
+      "docker-compose.yml",
+      "W:\\OasisStore\\docker-compose.yml"
+    ],
+    "assignment": {
+      "owner": "verifier-indep",
+      "role": "verifier",
+      "status": "assigned"
+    },
+    "findings": [
+      "arturo-docker-socket-proxy-blast-radius"
+    ]
+  },
+  {
+    "coverage_id": "HermesAgent/docker-compose.yml#llama-server::HermesAgent/docker-compose.yml#host perimeter::HermesAgent::ATTACK-CLASSES.md#Unauthenticated access",
+    "canonical_refs": {
+      "surface": "HermesAgent/docker-compose.yml#llama-server",
+      "boundary": "HermesAgent/docker-compose.yml#host perimeter",
+      "subsystem": "HermesAgent",
+      "attack_class": "ATTACK-CLASSES.md#Unauthenticated access"
+    },
+    "surface": "HermesAgent/docker-compose.yml#llama-server",
+    "boundary": "HermesAgent/docker-compose.yml#host perimeter",
+    "subsystem": "HermesAgent",
+    "attack_class": "ATTACK-CLASSES.md#Unauthenticated access",
+    "starting_paths": [
+      "HermesAgent/docker-compose.yml"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Unauthenticated access",
+    "selected_companion_blocks": [
+      "CLOUD-AND-DEPLOYMENT.md#Network boundaries"
+    ],
+    "excluded_blocks": [],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "verifier-indep",
+    "reviewed_paths": [
+      "HermesAgent/docker-compose.yml"
+    ],
+    "assignment": {
+      "owner": "verifier-indep",
+      "role": "verifier",
+      "status": "assigned"
+    },
+    "findings": [
+      "arturo-docker-hermes-llama-unauthenticated-exposure"
+    ]
+  },
+  {
+    "coverage_id": "WhisperService/Dockerfile#apt-get::WhisperService/Dockerfile#build stage::WhisperService::ATTACK-CLASSES.md#Supply chain tampering",
+    "canonical_refs": {
+      "surface": "WhisperService/Dockerfile#apt-get",
+      "boundary": "WhisperService/Dockerfile#build stage",
+      "subsystem": "WhisperService",
+      "attack_class": "ATTACK-CLASSES.md#Supply chain tampering"
+    },
+    "surface": "WhisperService/Dockerfile#apt-get",
+    "boundary": "WhisperService/Dockerfile#build stage",
+    "subsystem": "WhisperService",
+    "attack_class": "ATTACK-CLASSES.md#Supply chain tampering",
+    "starting_paths": [
+      "WhisperService/Dockerfile"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Supply chain tampering",
+    "selected_companion_blocks": [
+      "DEVSECOPS-AND-SUPPLY-CHAIN.md#Package and build integrity"
+    ],
+    "excluded_blocks": [],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "verifier-indep",
+    "reviewed_paths": [
+      "WhisperService/Dockerfile"
+    ],
+    "assignment": {
+      "owner": "verifier-indep",
+      "role": "verifier",
+      "status": "assigned"
+    },
+    "findings": [
+      "arturo-docker-whisper-insecure-apt-supply-chain"
+    ]
+  },
+  {
+    "coverage_id": "BotTrading/docker-compose.yml#bot::BotTrading/docker-compose.yml#host loopback::BotTrading::ATTACK-CLASSES.md#Resource exhaustion and file tampering",
+    "canonical_refs": {
+      "surface": "BotTrading/docker-compose.yml#bot",
+      "boundary": "BotTrading/docker-compose.yml#host loopback",
+      "subsystem": "BotTrading",
+      "attack_class": "ATTACK-CLASSES.md#Resource exhaustion and file tampering"
+    },
+    "surface": "BotTrading/docker-compose.yml#bot",
+    "boundary": "BotTrading/docker-compose.yml#host loopback",
+    "subsystem": "BotTrading",
+    "attack_class": "ATTACK-CLASSES.md#Resource exhaustion and file tampering",
+    "starting_paths": [
+      "BotTrading/docker-compose.yml"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource exhaustion and file tampering",
+    "selected_companion_blocks": [
+      "CLOUD-AND-DEPLOYMENT.md#Storage and volume mounts"
+    ],
+    "excluded_blocks": [],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "verifier-indep",
+    "reviewed_paths": [
+      "BotTrading/docker-compose.yml",
+      "W:\\OasisStore\\docker-compose.yml"
+    ],
+    "assignment": {
+      "owner": "verifier-indep",
+      "role": "verifier",
+      "status": "assigned"
+    },
+    "findings": [
+      "arturo-docker-bot-port-collision-and-source-mount"
+    ]
+  },
+  {
+    "coverage_id": "scripts/backup_citadel.sh#mongodump::scripts/backup_citadel.sh#database backup::scripts::ATTACK-CLASSES.md#Silent failure and data loss",
+    "canonical_refs": {
+      "surface": "scripts/backup_citadel.sh#mongodump",
+      "boundary": "scripts/backup_citadel.sh#database backup",
+      "subsystem": "scripts",
+      "attack_class": "ATTACK-CLASSES.md#Silent failure and data loss"
+    },
+    "surface": "scripts/backup_citadel.sh#mongodump",
+    "boundary": "scripts/backup_citadel.sh#database backup",
+    "subsystem": "scripts",
+    "attack_class": "ATTACK-CLASSES.md#Silent failure and data loss",
+    "starting_paths": [
+      "scripts/backup_citadel.sh"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Silent failure and data loss",
+    "selected_companion_blocks": [
+      "DEVSECOPS-AND-SUPPLY-CHAIN.md#Backup and restore procedures"
+    ],
+    "excluded_blocks": [],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "verifier-indep",
+    "reviewed_paths": [
+      "scripts/backup_citadel.sh",
+      "W:\\FloresByDolly\\docker-compose.yml"
+    ],
+    "assignment": {
+      "owner": "verifier-indep",
+      "role": "verifier",
+      "status": "assigned"
+    },
+    "findings": [
+      "arturo-docker-backup-mongodump-auth-failure"
+    ]
+  }
+]

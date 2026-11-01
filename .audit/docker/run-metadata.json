@@ -1,0 +1,34 @@
+{
+  "run_id": "arturo-docker-infra-full-audit-20261101",
+  "repo": "arturo-docker-infrastructure",
+  "target": "Z:\\",
+  "source_ref": "HEAD",
+  "profile": "standard",
+  "scope_paths": [
+    "docker-compose.yml",
+    "HermesAgent/docker-compose.yml",
+    "WhisperService/Dockerfile",
+    "BotTrading/docker-compose.yml",
+    "scripts/backup_citadel.sh",
+    "API/Dockerfile"
+  ],
+  "budget": null,
+  "execution_policy": "sandboxed-source-and-local-only",
+  "selected_companion_files": [
+    "CLOUD-AND-DEPLOYMENT.md",
+    "DEVSECOPS-AND-SUPPLY-CHAIN.md"
+  ],
+  "prior_run_paths": [
+    "Z:\\API\\.audit"
+  ],
+  "shared_file_owners": {
+    "run-metadata.json": "parent",
+    "architecture.md": "parent",
+    "coverage-ledger.json": "parent",
+    "findings.json": "parent",
+    "REPORT.md": "parent",
+    "FINDINGS-DETAIL.md": "parent",
+    "NEEDS-VALIDATION.md": "parent"
+  },
+  "run_status": "completed"
+}

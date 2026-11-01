@@ -1,0 +1,348 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-docker-socket-proxy-blast-radius",
+    "title": "Unrestricted Docker Socket Proxy Exposure on Shared Multi-Tenant Network (Container Escape / Host Takeover)",
+    "description": "In Z:\\docker-compose.yml, tecnativa/docker-socket-proxy is deployed with privileged: true, POST=1, and CONTAINERS=1, exposing the host Docker Unix socket over HTTP on port 2375 without authentication inside the arturo-net network. Because external web applications (such as oasis-paymenter in W:\\OasisStore) share this identical network, any remote code execution or compromised dependency within the PHP runtime can directly command the Docker daemon to spawn privileged containers with host root filesystem mounts, achieving immediate root compromise of the host server.",
+    "root_cause": "Attaching the privileged docker-proxy daemon to the shared application network arturo-net instead of an isolated management network accessible exclusively by Arturo-Api.",
+    "intended_behavior": "docker-proxy must reside exclusively on an internal, isolated network (e.g., docker-mgmt-net) where only Arturo-Api can connect. External services on arturo-net must never have network visibility or IP routes to docker-proxy:2375.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "Z:\\docker-compose.yml",
+        "line": 73,
+        "scope": "docker-proxy service definition",
+        "description": "docker-proxy mounts /var/run/docker.sock with POST=1, CONTAINERS=1, and joins arturo-net."
+      },
+      {
+        "kind": "propagation",
+        "file": "W:\\OasisStore\\docker-compose.yml",
+        "line": 108,
+        "scope": "oasis-paymenter network attachment",
+        "description": "Public web container oasis-paymenter is joined to the identical external arturo-net bridge network."
+      },
+      {
+        "kind": "sink",
+        "file": "Z:\\docker-compose.yml",
+        "line": 81,
+        "scope": "docker daemon socket",
+        "description": "POST=1 enables unauthenticated POST /containers/create with arbitrary host volume binds."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "Z:\\docker-compose.yml",
+        "line": 81,
+        "description": "environment: - CONTAINERS=1 - EVENTS=1 - IMAGES=1 - POST=1"
+      },
+      {
+        "file": "Z:\\docker-compose.yml",
+        "line": 86,
+        "description": "networks: - arturo-net"
+      },
+      {
+        "file": "W:\\OasisStore\\docker-compose.yml",
+        "line": 168,
+        "description": "arturo-net: external: true name: arturo-net"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "threat_actor",
+        "description": "Attacker compromises any container connected to arturo-net (e.g. PHP runtime in OasisStore)."
+      }
+    ],
+    "execution": {
+      "strategy": "sandboxed-source-and-local-only",
+      "command": "docker exec -it oasis-paymenter nc -zv docker-proxy 2375",
+      "observable_output": "Connection to docker-proxy 2375 port [tcp/*] succeeded! HTTP POST allows container creation."
+    },
+    "threat_model": {
+      "threat_actor": "Compromised web container tenant or adjacent network actor",
+      "attack_vector": "HTTP request to Docker Socket Proxy API on port 2375",
+      "cvss_v3_score": 9.9,
+      "severity": "CRITICAL",
+      "cwe": "CWE-250: Execution with Unnecessary Privileges / Container Escape"
+    },
+    "impact": {
+      "confidentiality": "HIGH",
+      "integrity": "HIGH",
+      "availability": "HIGH",
+      "description": "Total compromise of the Linux host system with root privileges, access to all databases, vaults, and files."
+    },
+    "remediation": {
+      "recommendation": "Isolate docker-proxy into an internal network (docker-mgmt-net) accessible only by Arturo-Api, remove privileged: true, and disconnect OasisStore from arturo-net.",
+      "code_patch": "networks:\n  docker-mgmt-net:\n    internal: true\nservices:\n  docker-proxy:\n    networks:\n      - docker-mgmt-net\n  api:\n    networks:\n      - docker-mgmt-net\n      - arturo-net"
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-docker-hermes-llama-unauthenticated-exposure",
+    "title": "Unauthenticated Llama-Server LLM Inference API Bound to All Host Interfaces (0.0.0.0:8080)",
+    "description": "In Z:\\HermesAgent\\docker-compose.yml, llama-server maps host port 8080 without specifying 127.0.0.1, causing Docker to bind the port across all public, LAN, and VPN interfaces on 0.0.0.0. The llama-server binary is invoked without --api-key, allowing any actor with network reachability to submit arbitrary prompts and consume 100% of the GPU VRAM.",
+    "root_cause": "Omitting 127.0.0.1 loopback restriction in docker port mapping and omitting --api-key in llama-server command.",
+    "intended_behavior": "llama-server must bind strictly to 127.0.0.1:8080:8080 or live purely on an internal Docker bridge, and enforce an API key for inference requests.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "Z:\\HermesAgent\\docker-compose.yml",
+        "line": 7,
+        "scope": "ports mapping",
+        "description": "Exposes port 8080:8080 to all host interfaces."
+      },
+      {
+        "kind": "sink",
+        "file": "Z:\\HermesAgent\\docker-compose.yml",
+        "line": 10,
+        "scope": "command execution",
+        "description": "Executes llama-server with --host 0.0.0.0 --port 8080 without --api-key."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "Z:\\HermesAgent\\docker-compose.yml",
+        "line": 7,
+        "description": "ports: - '8080:8080'"
+      },
+      {
+        "file": "Z:\\HermesAgent\\docker-compose.yml",
+        "line": 10,
+        "description": "command: -m /models/ornith-1.0-9b-Q8_0.gguf -c 131072 --host 0.0.0.0 --port 8080 --n-gpu-layers 99"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "network_reachability",
+        "description": "Attacker connects to host IP on port 8080 from LAN, VPN, or public interface."
+      }
+    ],
+    "execution": {
+      "strategy": "sandboxed-source-and-local-only",
+      "command": "curl -X POST http://<host-ip>:8080/completion -d '{\"prompt\": \"Hello\"}'",
+      "observable_output": "Returns 200 OK with model inference without requiring any Authorization header."
+    },
+    "threat_model": {
+      "threat_actor": "Unauthenticated network actor on LAN, Tailscale, or WAN",
+      "attack_vector": "HTTP POST to http://host:8080/completion",
+      "cvss_v3_score": 7.5,
+      "severity": "HIGH",
+      "cwe": "CWE-306: Missing Authentication for Critical Function"
+    },
+    "impact": {
+      "confidentiality": "LOW",
+      "integrity": "LOW",
+      "availability": "HIGH",
+      "description": "Exhaustion of 12GB GPU VRAM, DoS on LLM inference, and unauthorized usage of compute hardware."
+    },
+    "remediation": {
+      "recommendation": "Bind ports to 127.0.0.1:8080:8080 and supply an API key using --api-key in the startup command.",
+      "code_patch": "ports:\n  - \"127.0.0.1:8080:8080\"\ncommand: -m /models/ornith-1.0-9b-Q8_0.gguf --api-key \"${HERMES_API_KEY}\" -c 131072 --host 0.0.0.0 --port 8080 --n-gpu-layers 99"
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-docker-whisper-insecure-apt-supply-chain",
+    "title": "Cryptographic Verification and Package Integrity Bypassed in WhisperService Build (Supply Chain Tampering)",
+    "description": "In Z:\\WhisperService\\Dockerfile, lines 11-13 and 40-42 explicitly inject APT configurations disabling repository date validation (Acquire::Check-Valid-Until 'false') and invoke apt-get install with --allow-unauthenticated and --allow-insecure-repositories. This disables all GPG signature validation on system packages, allowing potential package spoofing or replay of outdated, vulnerable packages during container compilation.",
+    "root_cause": "Disabling APT GPG verification flags in builder and runtime stages to circumvent upstream date/repository validation issues.",
+    "intended_behavior": "Docker builds must enforce standard cryptographic package verification against official GPG keys without --allow-unauthenticated or --allow-insecure-repositories.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "Z:\\WhisperService\\Dockerfile",
+        "line": 11,
+        "scope": "builder stage apt config",
+        "description": "Overwrites APT configuration to ignore date expiration."
+      },
+      {
+        "kind": "sink",
+        "file": "Z:\\WhisperService\\Dockerfile",
+        "line": 13,
+        "scope": "builder stage apt-get install",
+        "description": "Installs build-essential, cmake, git with --allow-unauthenticated."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "Z:\\WhisperService\\Dockerfile",
+        "line": 12,
+        "description": "apt-get update --allow-insecure-repositories || true"
+      },
+      {
+        "file": "Z:\\WhisperService\\Dockerfile",
+        "line": 13,
+        "description": "apt-get install -y --allow-unauthenticated --no-install-recommends"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "build_trigger",
+        "description": "WhisperService Docker image is rebuilt or updated on the host."
+      }
+    ],
+    "execution": {
+      "strategy": "sandboxed-source-and-local-only",
+      "command": "grep -n -- '--allow-unauthenticated' Z:\\WhisperService\\Dockerfile",
+      "observable_output": "Lines 13 and 42 contain --allow-unauthenticated flag."
+    },
+    "threat_model": {
+      "threat_actor": "Man-in-the-Middle network attacker or compromised upstream mirror",
+      "attack_vector": "Trojaned .deb package injected during docker compose build",
+      "cvss_v3_score": 7.4,
+      "severity": "HIGH",
+      "cwe": "CWE-347: Improper Verification of Cryptographic Signature"
+    },
+    "impact": {
+      "confidentiality": "HIGH",
+      "integrity": "HIGH",
+      "availability": "MEDIUM",
+      "description": "Arbitrary code execution inside build and runtime containers during Docker image generation."
+    },
+    "remediation": {
+      "recommendation": "Remove date bypass file and delete --allow-unauthenticated and --allow-insecure-repositories flags from Dockerfile.",
+      "code_patch": "RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake git wget ca-certificates && rm -rf /var/lib/apt/lists/*"
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-docker-bot-port-collision-and-source-mount",
+    "title": "Port Collision on Loopback 8085 and Mutable Source Bind Mount (.:/app) in BotTrading",
+    "description": "In Z:\\BotTrading\\docker-compose.yml, Bot-Trading binds 127.0.0.1:8085:8085, which collides directly with OasisStore default port 8085 on the identical host. Furthermore, the volume definition mounts the entire repository root .:/app into the running container with read-write permissions, exposing .env secrets and host code files to runtime corruption or tampering.",
+    "root_cause": "Hardcoding host port 8085 conflicting with adjacent services and mounting the complete workspace directory as read-write.",
+    "intended_behavior": "BotTrading should bind to a distinct, conflict-free port (e.g. 8086) and adhere to Docker immutability by mounting only necessary persistent data directories.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "Z:\\BotTrading\\docker-compose.yml",
+        "line": 9,
+        "scope": "ports mapping",
+        "description": "ports: - '127.0.0.1:8085:8085'"
+      },
+      {
+        "kind": "propagation",
+        "file": "W:\\OasisStore\\docker-compose.yml",
+        "line": 48,
+        "scope": "ports mapping collision",
+        "description": "ports: - '${BIND_IP:-127.0.0.1}:${APP_PORT:-8085}:80'"
+      },
+      {
+        "kind": "sink",
+        "file": "Z:\\BotTrading\\docker-compose.yml",
+        "line": 24,
+        "scope": "volume mount",
+        "description": "volumes: - .:/app"
+      }
+    ],
+    "evidence": [
+      {
+        "file": "Z:\\BotTrading\\docker-compose.yml",
+        "line": 9,
+        "description": "ports: - '127.0.0.1:8085:8085'"
+      },
+      {
+        "file": "Z:\\BotTrading\\docker-compose.yml",
+        "line": 24,
+        "description": "volumes: - .:/app"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "simultaneous_execution",
+        "description": "Both BotTrading and OasisStore containers attempt to start on the host."
+      }
+    ],
+    "execution": {
+      "strategy": "sandboxed-source-and-local-only",
+      "command": "docker compose up -d (in BotTrading and OasisStore simultaneously)",
+      "observable_output": "Error response from daemon: driver failed programming external connectivity on endpoint: Bind for 127.0.0.1:8085 failed: port is already allocated"
+    },
+    "threat_model": {
+      "threat_actor": "Local process or compromised container component",
+      "attack_vector": "Address collision causing immediate service crash; arbitrary file write via .:/app mount",
+      "cvss_v3_score": 7.1,
+      "severity": "HIGH",
+      "cwe": "CWE-404: Improper Resource Shutdown or Release / Resource Conflict"
+    },
+    "impact": {
+      "confidentiality": "MEDIUM",
+      "integrity": "HIGH",
+      "availability": "HIGH",
+      "description": "Denial of service for either the payment store or trading bot, plus host code tampering risks."
+    },
+    "remediation": {
+      "recommendation": "Change host port mapping to 127.0.0.1:8086:8085 and remove .:/app bind mount, relying on the built Docker image.",
+      "code_patch": "ports:\n  - \"127.0.0.1:8086:8085\"\nvolumes:\n  - ../Cerebro/Boveda/BotTrading:/app/vault\n  - bot-storage:/app/database"
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-docker-backup-mongodump-auth-failure",
+    "title": "Silent Backup Failure and Data Loss Vulnerability in Automated Backup Script (backup_citadel.sh)",
+    "description": "In Z:\\scripts\\backup_citadel.sh, line 48 executes docker exec flores-mongodb mongodump --archive > \"$TEMP_DIR/flores_mongodb.archive\" 2>/dev/null || true. Because mongod --auth was recently activated on flores-mongodb, unauthenticated mongodump is rejected with exit code 1. The 2>/dev/null || true swallows all errors and creates a 0-byte dump, which restic then encrypts and syncs to Google Drive, reporting full backup success while production database backups are completely absent.",
+    "root_cause": "Calling mongodump without credentials and suppressing stderr/exit codes with 2>/dev/null || true.",
+    "intended_behavior": "The backup script must authenticate against MongoDB using container environment variables, verify that the archive is non-empty (-s), and abort with exit 1 if the dump fails.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "Z:\\scripts\\backup_citadel.sh",
+        "line": 48,
+        "scope": "backup execution",
+        "description": "docker exec flores-mongodb mongodump --archive > \"$TEMP_DIR/flores_mongodb.archive\" 2>/dev/null || true"
+      },
+      {
+        "kind": "propagation",
+        "file": "W:\\FloresByDolly\\docker-compose.yml",
+        "line": 6,
+        "scope": "database authentication enforcement",
+        "description": "command: mongod --auth with MONGO_INITDB_ROOT_USERNAME/PASSWORD required."
+      },
+      {
+        "kind": "sink",
+        "file": "Z:\\scripts\\backup_citadel.sh",
+        "line": 113,
+        "scope": "false success reporting",
+        "description": "echo 'BACKUP COMPLETADO CON EXITO' despite 0-byte corrupt archive."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "Z:\\scripts\\backup_citadel.sh",
+        "line": 48,
+        "description": "docker exec flores-mongodb mongodump --archive > \"$TEMP_DIR/flores_mongodb.archive\" 2>/dev/null || true"
+      },
+      {
+        "file": "W:\\FloresByDolly\\docker-compose.yml",
+        "line": 6,
+        "description": "command: mongod --auth"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "scheduled_backup",
+        "description": "arturo-backup.timer triggers backup_citadel.sh via systemd."
+      }
+    ],
+    "execution": {
+      "strategy": "sandboxed-source-and-local-only",
+      "command": "docker exec flores-mongodb mongodump --archive",
+      "observable_output": "Failed: can't create session: auth error: sasl: user 'admin' not found or authentication failed"
+    },
+    "threat_model": {
+      "threat_actor": "Operational silent degradation / ransomware or hardware loss scenario",
+      "attack_vector": "Silent 0-byte database archive uploaded to restic cloud backup",
+      "cvss_v3_score": 7.5,
+      "severity": "HIGH",
+      "cwe": "CWE-754: Improper Check for Unusual or Exceptional Conditions / False Recovery State"
+    },
+    "impact": {
+      "confidentiality": "NONE",
+      "integrity": "HIGH",
+      "availability": "HIGH",
+      "description": "Total data loss in case of server failure or disaster recovery, with zero recoverable database snapshots in Google Drive."
+    },
+    "remediation": {
+      "recommendation": "Pass authentication credentials to mongodump, remove 2>/dev/null || true, and verify [ -s archive ] before uploading.",
+      "code_patch": "docker exec flores-mongodb sh -c 'mongodump --username \"$MONGO_INITDB_ROOT_USERNAME\" --password \"$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --archive' > \"$TEMP_DIR/flores_mongodb.archive\"\nif [ ! -s \"$TEMP_DIR/flores_mongodb.archive\" ]; then\n    echo \"Error: Volcado de flores-mongodb falló o está vacío.\"\n    exit 1\nfi"
+    }
+  }
+]

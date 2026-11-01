@@ -307,4 +307,29 @@ La API monitorea el uso de GPU en tiempo real. Cuando el uso supera el umbral (8
 
 ---
 
-_Última actualización: Julio 2026 — Arturo V9.0 (Thin Controllers, GPU Queue Worker, Seguridad v10, Ornith-Vision 9B)_
+## 🛡️ Auditorías de Seguridad Independientes (Full Audit Mode)
+
+El ecosistema Arturo cuenta con un marco continuo de auditoría de seguridad integral ejecutado con la skill `security-audit`, aplicando verificación de doble ciego mediante subagentes independientes y esquemas estructurados de trazabilidad.
+
+### 1. Auditoría de Código y Lógica de API (`.audit/`)
+* **Alcance:** Controladores HTTP, LangChain Tools, Middlewares (`ipBlocker`, `authGuard`, CORS), Base Vectorial LanceDB y Bóveda.
+* **Artefactos:** Registrados en `.audit/` (`findings.json`, `coverage-ledger.json`, `REPORT.md`, `FINDINGS-DETAIL.md`).
+* **Vulnerabilidades Mitigadas:**
+  - Path Traversal en `POST /api/notas` y tool `guardar_boveda` hacia fuera de la Bóveda (Resuelto).
+  - Bypass funcional en middleware `ipBlocker` por discrepancia de interfaces en llamadas `req.ip` (Resuelto).
+  - Wildcard `Access-Control-Allow-Origin: *` en fallback CORS (Resuelto).
+  - Divulgación no autenticada de rutas y catálogo de modelos en `/status` (Resuelto).
+
+### 2. Auditoría de Infraestructura Docker y Entorno (`.audit/docker/`)
+* **Alcance:** `docker-compose.yml`, `WhisperService/Dockerfile`, `HermesAgent/docker-compose.yml`, `BotTrading/docker-compose.yml`, scripts de respaldo `backup_citadel.sh` y segmentación de redes puente.
+* **Artefactos:** Registrados en `.audit/docker/` (`findings.json`, `coverage-ledger.json`, `REPORT.md`, `FINDINGS-DETAIL.md`).
+* **Vectores Auditados:**
+  - `arturo-docker-socket-proxy-blast-radius` (CRITICAL): Exposición de Docker Socket en `arturo-net` mitigable mediante red de gestión aislada `docker-mgmt-net`.
+  - `arturo-docker-hermes-llama-unauthenticated-exposure` (HIGH): Restricción de puerto `8080` a `127.0.0.1` e inyección de API Key.
+  - `arturo-docker-whisper-insecure-apt-supply-chain` (HIGH): Restauración de firmas criptográficas GPG en build de Whisper.
+  - `arturo-docker-bot-port-collision-and-source-mount` (HIGH): Desacoplamiento de puerto `8085` a `8086` y eliminación de bind mount `.:/app`.
+  - `arturo-docker-backup-mongodump-auth-failure` (HIGH): Autenticación administrativa en volcado de `flores-mongodb` y validación de integridad.
+
+---
+
+_Última actualización: Noviembre 2026 — Arturo V10.0 (Thin Controllers, GPU Queue Worker, Auditoría de Seguridad Integral, Ornith-Vision 9B)_

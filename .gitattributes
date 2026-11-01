@@ -1,0 +1,11 @@
+# Forzar finales de línea LF (Unix) para compatibilidad multiplataforma
+* text=auto eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.dockerignore text eol=lf

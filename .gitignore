@@ -1,11 +1,60 @@
+# Dependencias
 node_modules/
+
+# Variables de entorno
 .env
 .env.local
-lancedb_data/
+.env.*.local
+
+# Bases de datos
 *.db
 *.db-shm
 *.db-wal
+lancedb_data/
+
+# Logs
 *.log
+
+# Archivos multimedia
 Media/
+
+# Archivos de cookies
 config/instagram_cookies.txt
 instagram_cookies.txt
+
+# Archivos temporales
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Archivos de construcción
+dist/
+build/
+.cache/
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de backup
+*.bak
+*.backup
+
+# Entornos virtuales Python y caches
+**/.venv/
+**/venv/
+**/__pycache__/
+*.pyc
+
+# Sesiones y cookies de cualquier tipo
+config/*cookies*
+config/*session*
+*.session
+
+# Tests y mocks locales sueltos
+config/raw_ollama_test.js
+config/mock_analysis.js

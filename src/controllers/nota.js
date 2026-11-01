@@ -1,14 +1,26 @@
-const { crearNota } = require('../use-cases/crearNotaUseCase');
+const fs = require('fs');
+const path = require('path');
 
 async function crearNotaHandler(req, res) {
-    const { titulo, contexto, carpeta = 'Inbox', tipo = 'nota', directo = false } = req.body;
+    const { titulo, contexto, carpeta = 'Inbox' } = req.body;
     if (!titulo || !contexto) return res.status(400).json({ error: 'Faltan titulo y contexto.' });
-    console.log(`[NOTA] Creando: "${titulo}"`);
+    console.log(`[NOTA] Agregando a: "${titulo}"`);
     try {
-        const r = await crearNota({ titulo, contexto, carpeta, tipo, directo });
-        if (!r.creada) return res.status(409).json({ mensaje: `"${titulo}" ya existe.`, ruta: r.ruta });
-        res.status(201).json({ mensaje: 'Nota creada.', ruta: r.ruta, contenido_preview: r.contenidoPreview });
+        const boveda = process.env.VAULT_PATH_BOVEDA || '/home/ronald/ARTURO/Cerebro/Boveda';
+        const rutaCarpeta = path.join(boveda, carpeta);
+        const rutaArchivo = path.join(rutaCarpeta, `${titulo}.md`);
+        
+        if (!fs.existsSync(rutaCarpeta)) {
+            fs.mkdirSync(rutaCarpeta, { recursive: true });
+        }
+        
+        const fecha = new Date().toISOString();
+        const contenido = `\n---\nAgregado el: ${fecha}\n\n${contexto}\n`;
+        fs.appendFileSync(rutaArchivo, contenido, 'utf8');
+        
+        res.status(201).json({ mensaje: 'Texto agregado correctamente.', ruta: rutaArchivo });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 }

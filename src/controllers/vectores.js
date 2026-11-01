@@ -11,8 +11,8 @@
  *   POST /IA/vram/liberar     → Libera VRAM (descarga modelos pesados)
  */
 
-const { sincronizarBoveda, obtenerEstadoVectorial } = require('../use-cases/sincronizarBovedaUseCase');
-const { obtenerEstadoVRAM, liberarVRAM } = require('../services/vramManagerService');
+const { sincronizarBoveda, obtenerEstadoVectorial } = require('../use-cases/vaultIndexer');
+const { buscarSemanticamente } = require('../repositories/vectorRepository');
 
 /**
  * POST /IA/vectores/sync
@@ -49,34 +49,19 @@ async function estadoVectoresController(req, res) {
     }
 }
 
-/**
- * GET /IA/vram/estado
- */
-async function estadoVRAMController(req, res) {
+
+async function getRagContextController(req, res) {
     try {
-        const estado = await obtenerEstadoVRAM();
-        res.json(estado);
+        const query = req.query.q || "componentes de la torre";
+        const resLance = await buscarSemanticamente(query, 5, []);
+        res.json({ exito: true, query, resultados: resLance });
     } catch (err) {
         res.status(500).json({ error: err.message });
-    }
-}
-
-/**
- * POST /IA/vram/liberar
- */
-async function liberarVRAMController(req, res) {
-    try {
-        await liberarVRAM();
-        const estado = await obtenerEstadoVRAM();
-        res.json({ exito: true, estadoActual: estado });
-    } catch (err) {
-        res.status(500).json({ exito: false, error: err.message });
     }
 }
 
 module.exports = {
     syncVectoresController,
     estadoVectoresController,
-    estadoVRAMController,
-    liberarVRAMController
+    getRagContextController
 };

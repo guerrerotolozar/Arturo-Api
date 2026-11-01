@@ -105,6 +105,19 @@ function listarArchivosDir(dirRelativa) {
     return fs.readdirSync(dirAbs).filter(f => f.endsWith('.md'));
 }
 
+/**
+ * Busca un archivo por su nombre (sin extensión) y retorna su contenido.
+ * Útil para expansión dinámica de contexto.
+ * @param {string} nombreBusqueda
+ * @returns {string|null}
+ */
+function leerArchivoPorNombre(nombreBusqueda) {
+    const nombreLimpio = nombreBusqueda.trim().toLowerCase();
+    const todos = leerVaultRecursivo();
+    const encontrado = todos.find(n => n.nombre.toLowerCase() === nombreLimpio);
+    return encontrado ? encontrado.contenido : null;
+}
+
 module.exports = {
     VAULT_PATH,
     leerNucleoArturo,
@@ -114,5 +127,6 @@ module.exports = {
     eliminarArchivo,
     existeArchivo,
     listarArchivosDir,
-    asegurarDirectorio
+    asegurarDirectorio,
+    leerArchivoPorNombre
 };

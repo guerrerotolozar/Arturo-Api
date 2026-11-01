@@ -18,10 +18,6 @@ const { EventEmitter } = require('events');
 const notifBus = new EventEmitter();
 notifBus.setMaxListeners(20); // Permitir múltiples clientes SSE
 
-// Cola de notificaciones en memoria para polling fallback (máximo 50)
-const MAX_QUEUE = 50;
-let notificaciones = [];
-
 // ============================================================
 // POST /IA/notify — Encolar + Broadcast SSE
 // ============================================================
@@ -42,21 +38,29 @@ function enviarNotificacion(req, res) {
         titulo,
         mensaje,
         tipo,       // "trading", "sistema", "info"
-        leida: false,
         timestamp: new Date().toISOString(),
     };
 
-    // 1. Encolar para polling fallback
-    notificaciones.push(notif);
-    if (notificaciones.length > MAX_QUEUE) {
-        notificaciones = notificaciones.slice(-MAX_QUEUE);
-    }
-
-    // 2. Broadcast a todos los clientes SSE conectados (entrega instantánea)
+    // Broadcast a todos los clientes SSE conectados (entrega instantánea)
     notifBus.emit('notificacion', notif);
 
     console.log(`[NOTIF] 📱 Nueva: "${titulo}" (tipo: ${tipo})`);
     res.status(201).json({ mensaje: 'Notificación encolada.', id: notif.id });
+}
+
+/**
+ * Helper interno para enviar notificaciones desde otros servicios de la API (ej. Watchers).
+ */
+function enviarNotificacionLocal({ titulo, mensaje, tipo = 'info' }) {
+    const notif = {
+        id: Date.now(),
+        titulo,
+        mensaje,
+        tipo,
+        timestamp: new Date().toISOString(),
+    };
+    notifBus.emit('notificacion', notif);
+    console.log(`[NOTIF] 📱 Local: "${titulo}" (tipo: ${tipo})`);
 }
 
 // ============================================================
@@ -98,30 +102,4 @@ function streamNotificaciones(req, res) {
     });
 }
 
-// ============================================================
-// GET /IA/notifications — Polling Fallback
-// ============================================================
-
-/**
- * GET /IA/notifications
- * Retorna las notificaciones NO leídas y las marca como leídas.
- */
-function obtenerNotificaciones(req, res) {
-    const pendientes = notificaciones.filter(n => !n.leida);
-    
-    // Marcar como leídas
-    pendientes.forEach(n => n.leida = true);
-
-    // Limpiar las ya leídas después de un rato (más de 100 leídas)
-    const leidas = notificaciones.filter(n => n.leida);
-    if (leidas.length > 30) {
-        notificaciones = notificaciones.filter(n => !n.leida || Date.now() - n.id < 3600000);
-    }
-
-    res.json({ 
-        count: pendientes.length, 
-        notificaciones: pendientes 
-    });
-}
-
-module.exports = { enviarNotificacion, obtenerNotificaciones, streamNotificaciones };
+module.exports = { enviarNotificacion, streamNotificaciones, enviarNotificacionLocal };

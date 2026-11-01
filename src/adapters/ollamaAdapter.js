@@ -15,11 +15,15 @@
 
 const { OLLAMA_URL, OLLAMA_MODEL_EMBED } = require('../config/env');
 
-const OLLAMA_TIMEOUT_MS = 900_000; // 15 min — safety net contra cuelgues reales, no contra modelos lentos
+// --- MUTEX PARA ENCOLAR PETICIONES A OLLAMA ---
+// Ollama (especialmente con modelos grandes) sufre cuelgues o timeouts (UND_ERR_HEADERS_TIMEOUT)
+// si recibe múltiples peticiones en paralelo. Esta "sala de espera" asegura que se procesen de a una.
+let ollamaMutex = Promise.resolve();
 
 /**
  * Envía un prompt a Ollama usando STREAMING y acumula la respuesta.
  * Compatible con modelos de razonamiento (thinking models) y clásicos.
+ * Encola las peticiones para evitar cuelgues por paralelismo.
  *
  * @param {string} prompt
  * @param {string} modelo    - Nombre del modelo Ollama (ej: "qwen3.5:4b")
@@ -27,88 +31,74 @@ const OLLAMA_TIMEOUT_MS = 900_000; // 15 min — safety net contra cuelgues real
  * @returns {Promise<string>}
  */
 async function llamarOllama(prompt, modelo, formato = null, images = null) {
-    const body = { 
-        model: modelo, 
-        prompt, 
-        stream: true,
-        options: { num_ctx: 8192 } // Límite seguro para tu hardware actual. Evita crasheos de memoria.
-    };
-    if (formato) body.format = formato;
-    if (images) body.images = images;
+    // Adquirir el ticket para la sala de espera
+    let releaseMutex;
+    const currentMutex = ollamaMutex;
+    ollamaMutex = new Promise(resolve => { releaseMutex = resolve; });
+    await currentMutex; // Esperar a que el anterior termine
 
-    // AbortController: si Ollama no termina en 2 min, cortamos limpio
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-
-    let response;
     try {
-        response = await fetch(OLLAMA_URL, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(body),
-            signal:  controller.signal
-        });
-    } catch (err) {
-        clearTimeout(timeout);
-        if (err.name === 'AbortError') {
-            throw new Error(`Ollama timeout: "${modelo}" no respondió en ${OLLAMA_TIMEOUT_MS / 1000}s`);
-        }
-        throw err;
-    }
+        const body = { 
+            model: modelo, 
+            prompt, 
+            stream: true,
+            options: { num_ctx: 8192 }
+        };
+        if (formato) body.format = formato;
+        if (images) body.images = images;
+
+    const response = await fetch(OLLAMA_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body)
+    });
 
     if (!response.ok) {
-        clearTimeout(timeout);
         throw new Error(`Ollama respondio ${response.status} para modelo "${modelo}"`);
     }
 
     // Parsear stream NDJSON línea por línea
     const respuestaAcumulada = [];
-    try {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lineas = buffer.split('\n');
-            buffer = lineas.pop(); // última línea incompleta vuelve al buffer
+        buffer += decoder.decode(value, { stream: true });
+        const lineas = buffer.split('\n');
+        buffer = lineas.pop(); // última línea incompleta vuelve al buffer
 
-            for (const linea of lineas) {
-                const limpia = linea.trim();
-                if (!limpia) continue;
+        for (const linea of lineas) {
+            const limpia = linea.trim();
+            if (!limpia) continue;
 
-                try {
-                    const chunk = JSON.parse(limpia);
+            try {
+                const chunk = JSON.parse(limpia);
 
-                    // Solo acumulamos el campo "response" (texto visible).
-                    // Los tokens de "thinking" internos del modelo se descartan.
-                    if (chunk.response) {
-                        respuestaAcumulada.push(chunk.response);
-                    }
-
-                    if (chunk.done) break;
-                } catch {
-                    // Línea NDJSON mal formada — ignorar y seguir
+                // Solo acumulamos el campo "response" (texto visible).
+                // Los tokens de "thinking" internos del modelo se descartan.
+                if (chunk.response) {
+                    respuestaAcumulada.push(chunk.response);
                 }
+
+                if (chunk.done) break;
+            } catch {
+                // Línea NDJSON mal formada — ignorar y seguir
             }
         }
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            throw new Error(`Ollama timeout (stream): "${modelo}" no completó en ${OLLAMA_TIMEOUT_MS / 1000}s`);
-        }
-        throw err;
-    } finally {
-        clearTimeout(timeout);
     }
 
-    const resultado = respuestaAcumulada.join('').trim();
-    if (!resultado) {
-        throw new Error(`Ollama devolvió respuesta vacía para modelo "${modelo}"`);
+        const resultado = respuestaAcumulada.join('').trim();
+        if (!resultado) {
+            throw new Error(`Ollama devolvió respuesta vacía para modelo "${modelo}"`);
+        }
+        return resultado;
+    } finally {
+        releaseMutex();
     }
-    return resultado;
 }
 
 /**

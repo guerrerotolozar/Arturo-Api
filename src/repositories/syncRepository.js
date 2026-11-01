@@ -8,7 +8,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '../../arturo_memoria.db');
+const DB_PATH = path.join(__dirname, '../../database/arturo_memoria.db');
 const db = new Database(DB_PATH);
 
 // Habilitar WAL mode

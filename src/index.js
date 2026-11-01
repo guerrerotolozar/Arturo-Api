@@ -23,6 +23,7 @@ const downloadDirecto = require('./src/controllers/download');
 const { listarChatsController, eliminarChatController, obtenerMensajesController } = require('./src/controllers/chats');
 const { syncVectoresController, estadoVectoresController, getRagContextController } = require('./src/controllers/vectores');
 const { enviarNotificacion, streamNotificaciones } = require('./src/controllers/notificaciones');
+const { registrarEventoSeguridad } = require('./src/controllers/securityLog');
 const { listarMediaController, listarCategoriasController, contarPendientesController, obtenerMediaController, servirThumbController, servirArchivoController, categorizarController, eliminarMediaController, syncMediaController } = require('./src/controllers/media');
 
 const app = express();
@@ -111,6 +112,9 @@ app.get('/api/vectores/estado', estadoVectoresController);  // Estado de LanceDB
 // 5. Notificaciones Push (Bot Trading → App Android)
 app.post('/api/notifications', enviarNotificacion);                  // Encolar notificación
 app.get('/api/notifications/stream', streamNotificaciones);   // SSE en tiempo real (push instantáneo)
+
+// 5.1 Telemetría y Bitácora de Seguridad Asíncrona (Tiendas Web & Microservicios → Arturo)
+app.post('/api/security/event', registrarEventoSeguridad);
 
 // 6. Media Intelligence (Videos descargados + Categorización)
 app.get('/api/media', listarMediaController);       // Lista media (filtrable)

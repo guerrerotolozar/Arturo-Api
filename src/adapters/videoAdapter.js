@@ -17,10 +17,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
-const { analizarImagen } = require('./visionAdapter');
 const { transcribirAudio } = require('./whisperAdapter');
 
-const MAX_FRAMES = 3; // Frames a extraer (más = más contexto pero más lento en CPU)
+const DEFAULT_MAX_FRAMES = 3; // Frames a extraer por defecto
 
 /**
  * Ejecuta un comando FFmpeg y devuelve una promesa.
@@ -57,26 +56,20 @@ function obtenerDuracion(videoPath) {
 }
 
 /**
- * Procesa un video completo: extrae frames + transcribe audio.
+ * Procesa un video directamente desde su ruta en disco.
+ * Extrae frames equidistantes + transcribe audio con Whisper.
  *
- * @param {string} videoBase64 - Video en base64 puro (sin prefijo data:...)
+ * @param {string} videoPath - Ruta absoluta al archivo de video
  * @param {function} onEstado - Callback para reportar progreso al cliente
+ * @param {number} maxFrames - Número de frames a extraer (por defecto 3)
  * @returns {Promise<{contextoVisual: string, transcripcion: string}>}
  */
-async function procesarVideo(videoBase64, onEstado = () => {}) {
+async function procesarVideoDesdeRuta(videoPath, onEstado = () => {}, maxFrames = DEFAULT_MAX_FRAMES) {
     const tmpDir = path.join(os.tmpdir(), `arturo_video_${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
-
-    const videoPath = path.join(tmpDir, 'input.mp4');
     const audioPath = path.join(tmpDir, 'audio.wav');
 
     try {
-        // 1. Guardar video temporal
-        const buffer = Buffer.from(videoBase64, 'base64');
-        fs.writeFileSync(videoPath, buffer);
-        const sizeMB = (buffer.length / 1024 / 1024).toFixed(1);
-        console.log(`[VIDEO] Guardado temporal: ${sizeMB} MB`);
-
         // 2. Obtener duración
         let duracion;
         try {
@@ -89,26 +82,64 @@ async function procesarVideo(videoBase64, onEstado = () => {}) {
         // 3. Extraer frames equidistantes
         onEstado('Extrayendo frames del video...');
         const framePaths = [];
-        const intervalo = duracion / (MAX_FRAMES + 1);
-
-        for (let i = 1; i <= MAX_FRAMES; i++) {
-            const tiempo = (intervalo * i).toFixed(2);
-            const framePath = path.join(tmpDir, `frame_${i}.jpg`);
+        
+        if (maxFrames === 'auto' || maxFrames === -1) {
+            console.log(`[VIDEO] Modo Inteligente (Temporal Tiling): Extrayendo grillas dinámicamente con mpdecimate (max 1 fps, tile 3x3)...`);
             
-            await ejecutarFFmpeg([
-                '-ss', tiempo,
+            // Ejecutar FFmpeg una sola vez para extraer todos los keyframes
+            // fps=1: Límite de 1 frame por segundo máximo
+            // mpdecimate: Elimina frames casi idénticos
+            // showinfo: Extrae los timestamps exactos de los frames sobrevivientes
+            // scale=256:-1: Escala a 256px de ancho
+            // tile=3x3: Agrupa hasta 9 frames en un solo mosaico para no saturar la VRAM del modelo
+            const ffmpegOutput = await ejecutarFFmpeg([
                 '-i', videoPath,
-                '-vframes', '1',
-                '-q:v', '3',       // calidad JPEG (2=mejor, 5=peor)
-                '-vf', 'scale=800:-1', // max 800px ancho
-                '-y', framePath
+                '-vf', 'fps=1,mpdecimate,showinfo,scale=256:-1,tile=3x3',
+                '-vsync', 'vfr',
+                '-q:v', '3',
+                '-y', path.join(tmpDir, 'grid_%04d.jpg')
             ]);
 
-            if (fs.existsSync(framePath)) {
-                framePaths.push(framePath);
+            // Parsear timestamps para sincronización con audio
+            const ptsRegex = /pts_time:([\d\.]+)/g;
+            let match;
+            const ptsTimes = [];
+            while ((match = ptsRegex.exec(ffmpegOutput)) !== null) {
+                ptsTimes.push(parseFloat(match[1]));
+            }
+
+            const files = fs.readdirSync(tmpDir).filter(f => f.startsWith('grid_') && f.endsWith('.jpg')).sort();
+            for (const file of files) {
+                framePaths.push(path.join(tmpDir, file));
+            }
+            console.log(`[VIDEO] Extracción inteligente finalizada: ${framePaths.length} mosaicos capturados (de ${duracion.toFixed(1)}s de video).`);
+            // Guardamos los ptsTimes en el propio array para que estén disponibles luego
+            framePaths.ptsTimes = ptsTimes;
+            
+        } else {
+            console.log(`[VIDEO] Modo Uniforme: Extrayendo exactamente ${maxFrames} frames (800px)...`);
+            const intervalo = duracion / (maxFrames + 1);
+            framePaths.ptsTimes = [];
+
+            for (let i = 1; i <= maxFrames; i++) {
+                const tiempo = (intervalo * i).toFixed(2);
+                const framePath = path.join(tmpDir, `frame_${i}.jpg`);
+                
+                await ejecutarFFmpeg([
+                    '-ss', tiempo,
+                    '-i', videoPath,
+                    '-vframes', '1',
+                    '-q:v', '3',
+                    '-vf', 'scale=800:-1',
+                    '-y', framePath
+                ]);
+
+                if (fs.existsSync(framePath)) {
+                    framePaths.push(framePath);
+                    framePaths.ptsTimes.push(parseFloat(tiempo));
+                }
             }
         }
-        console.log(`[VIDEO] Extraídos ${framePaths.length} frames`);
 
         // 4. Extraer audio para Whisper
         onEstado('Extrayendo audio del video...');
@@ -127,20 +158,129 @@ async function procesarVideo(videoBase64, onEstado = () => {}) {
             tieneAudio = false;
         }
 
-        // 5. Analizar frames con Vision
+        // 5. Analizar frames con Vision usando LangChain
         const descripciones = [];
+        const { ChatOllama } = require("@langchain/ollama");
+        const { HumanMessage } = require("@langchain/core/messages");
+        const { OLLAMA_MODEL_VISION, OLLAMA_URL } = require('../config/env');
+        const cliProgress = require('cli-progress');
+        
+        const baseUrl = OLLAMA_URL.replace('/api/generate', '').replace('/api/chat', '');
+        // El LLM Visual evalúa CADA MOSAICO DE FORMA INDIVIDUAL Y AISLADA.
+        // Tokens de entrada (417) + Tokens max generados (~1400) = ~1817 tokens máximos por petición.
+        // Fijamos numCtx en 4096 por petición del usuario, para dar un "colchón" generoso y evitar que el modelo sufra al redactar.
+        // Seguirá usando muy poca VRAM comparado con el default de Ollama.
+        const visionLlm = new ChatOllama({ baseUrl, model: OLLAMA_MODEL_VISION || 'robit/ornith-vision:9b', temperature: 0.1, numCtx: 4096 });
+
+        console.log(`[VIDEO] Iniciando análisis visual de ${framePaths.length} mosaicos con LangChain...`);
+        
+        // --- MAGIA PRO: Barra de progreso a prueba de Docker Buffering ---
+        // Docker retiene los logs si no llevan \n. Para lograr el efecto de "una sola línea"
+        // sin que Docker lo bloquee, imprimimos \n en cada actualización, pero usamos 
+        // códigos ANSI (\x1b[1A) para mover el cursor hacia arriba y sobrescribir.
+        
+        let barActive = true;
+        let currentFrame = 0;
+        const totalFrames = framePaths.length;
+        const timeStart = Date.now();
+
+        const drawBar = (isRedraw = false) => {
+            if (!barActive) return;
+            const percent = Math.floor((currentFrame / totalFrames) * 100);
+            const filled = Math.floor(percent / 2);
+            const bar = '█'.repeat(filled) + '░'.repeat(50 - filled);
+            const elapsed = (Date.now() - timeStart) / 1000;
+            const eta = currentFrame > 0 ? Math.max(0, Math.floor((elapsed / currentFrame) * (totalFrames - currentFrame))) : '?';
+            
+            const line = `[VIDEO] 👁️ Analizando | \x1b[36m${bar}\x1b[0m | ${percent}% || ${currentFrame}/${totalFrames} mosaicos || Faltan: ${eta}s`;
+            
+            // Si no es el primer renderizado (o redibujado post-log), subimos el cursor una línea
+            if (!isRedraw && currentFrame > 0) {
+                // Sube el cursor 1 línea, y limpia desde la posición actual (manteniendo el prefijo de Docker intacto)
+                process.stdout.write('\x1b[1A\x1b[K'); 
+            }
+            // Imprime la barra sin retorno de carro, así se posiciona perfectamente después de "Arturo-Api | "
+            process.stdout.write(`${line}\n`);
+        };
+
+        const originalConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+        const safeLog = (originalFn) => (...args) => {
+            if (barActive) process.stdout.write('\x1b[1A\x1b[K'); // Borra la barra actual (sube y borra el texto, no el prefijo)
+            originalFn.apply(console, args); // Imprime el log intruso (ej. Vigilante)
+            if (barActive) drawBar(true); // Redibuja la barra abajo como "primer render"
+        };
+        console.log = safeLog(originalConsole.log);
+        console.warn = safeLog(originalConsole.warn);
+        console.error = safeLog(originalConsole.error);
+        console.info = safeLog(originalConsole.info);
+        // ------------------------------------------------------------------
+
+        drawBar(true); // Render inicial
+
+        // El prompt equilibrado diseñado por el usuario
+        const promptEquilibrado = "Resume de forma concisa el contenido técnico que ocurre en secuencia temporal de este mosaico. Ignora al presentador y la interfaz de usuario. Concéntrate en extraer conceptos, diagramas o texto relevante de las diapositivas. Lee la cuadrícula de izquierda a derecha, de arriba a abajo.";
+
         for (let i = 0; i < framePaths.length; i++) {
-            onEstado(`Analizando frame ${i + 1}/${framePaths.length}...`);
-            console.log(`[VIDEO] Analizando frame ${i + 1}/${framePaths.length}...`);
             try {
-                const b64 = fs.readFileSync(framePaths[i]).toString('base64');
-                const vision = await analizarImagen(b64, `Describe brevemente qué se ve en este frame de un video (frame ${i + 1} de ${framePaths.length}). Sé conciso.`);
-                descripciones.push(`Frame ${i + 1}: ${vision.texto}`);
+                // Calcular tiempo exacto de inicio y fin para este mosaico
+                let startTime = 0;
+                let endTime = duracion;
+                
+                if (maxFrames === 'auto' || maxFrames === -1) {
+                    // Modo Inteligente (9 frames por mosaico)
+                    startTime = framePaths.ptsTimes[i * 9] !== undefined ? framePaths.ptsTimes[i * 9] : 0;
+                    endTime = framePaths.ptsTimes[(i + 1) * 9] !== undefined ? framePaths.ptsTimes[(i + 1) * 9] : duracion;
+                } else {
+                    // Modo Uniforme (1 frame por "mosaico")
+                    startTime = framePaths.ptsTimes[i] !== undefined ? framePaths.ptsTimes[i] : 0;
+                    endTime = framePaths.ptsTimes[i + 1] !== undefined ? framePaths.ptsTimes[i + 1] : duracion;
+                }
+
+                const base64 = fs.readFileSync(framePaths[i], 'base64');
+                const msg = new HumanMessage({
+                    content: [
+                        { type: "text", text: promptEquilibrado },
+                        { type: "image_url", image_url: `data:image/jpeg;base64,${base64}` }
+                    ]
+                });
+                const res = await visionLlm.invoke([msg]);
+                
+                descripciones.push({
+                    mosaico: i + 1,
+                    start: startTime,
+                    end: endTime,
+                    texto: res.content.trim()
+                });
+                
+                currentFrame++;
+                drawBar();
             } catch (err) {
-                console.warn(`[VIDEO] Error analizando frame ${i + 1}: ${err.message}`);
-                descripciones.push(`Frame ${i + 1}: (no se pudo analizar)`);
+                console.warn(`[VIDEO] Error analizando frame ${i+1}: ${err.message}`);
+                currentFrame++;
+                drawBar();
             }
         }
+        
+        // --- PURGA DE VRAM ---
+        // Forzamos a Ollama a descargar el modelo de visión inmediatamente para dejar espacio a Whisper
+        try {
+            console.log("\n[VIDEO] Purga de VRAM: Descargando modelo de visión...");
+            await fetch(baseUrl + '/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: OLLAMA_MODEL_VISION || 'robit/ornith-vision:9b', keep_alive: 0 })
+            });
+        } catch (e) {
+            console.warn("[VIDEO] Advertencia al purgar VRAM:", e.message);
+        }
+
+        barActive = false; // Desactivar la magia
+        
+        // Restaurar logs
+        console.log = originalConsole.log;
+        console.warn = originalConsole.warn;
+        console.error = originalConsole.error;
+        console.info = originalConsole.info;
 
         // 6. Transcribir audio con Whisper
         let transcripcion = '';
@@ -150,13 +290,15 @@ async function procesarVideo(videoBase64, onEstado = () => {}) {
             try {
                 const audioBuffer = fs.readFileSync(audioPath);
                 transcripcion = await transcribirAudio(audioBuffer);
-                console.log(`[VIDEO] Transcripción completada (${transcripcion.length} chars)`);
+                const chars = transcripcion.text ? transcripcion.text.length : 0;
+                console.log(`[VIDEO] Transcripción completada (${chars} chars)`);
             } catch (err) {
                 console.warn(`[VIDEO] Error en transcripción: ${err.message}`);
             }
         }
 
-        const contextoVisual = descripciones.join('\n');
+        // contextoVisual ahora es un arreglo de objetos [{start, end, texto}]
+        const contextoVisual = descripciones;
         return { contextoVisual, transcripcion };
 
     } finally {
@@ -170,4 +312,23 @@ async function procesarVideo(videoBase64, onEstado = () => {}) {
     }
 }
 
-module.exports = { procesarVideo };
+async function procesarVideo(videoBase64, onEstado = () => {}) {
+    const tmpDir = path.join(os.tmpdir(), `arturo_video_b64_${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const videoPath = path.join(tmpDir, 'input.mp4');
+
+    try {
+        const buffer = Buffer.from(videoBase64, 'base64');
+        fs.writeFileSync(videoPath, buffer);
+        const sizeMB = (buffer.length / 1024 / 1024).toFixed(1);
+        console.log(`[VIDEO] Guardado temporal B64: ${sizeMB} MB`);
+        
+        return await procesarVideoDesdeRuta(videoPath, onEstado);
+    } finally {
+        try {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch (e) {}
+    }
+}
+
+module.exports = { procesarVideo, procesarVideoDesdeRuta };

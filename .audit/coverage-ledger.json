@@ -1,0 +1,797 @@
+[
+  {
+    "coverage_id": "docker-compose.yml%23docker-proxy::docker-compose.yml%23arturo-net%20bridge::docker-compose.yml::ATTACK-CLASSES.md%23Container%20escape",
+    "canonical_refs": {
+      "surface": "docker-compose.yml#docker-proxy",
+      "boundary": "docker-compose.yml#arturo-net bridge",
+      "subsystem": "docker-compose.yml",
+      "attack_class": "ATTACK-CLASSES.md#Container escape"
+    },
+    "surface": "docker-compose.yml#docker-proxy",
+    "boundary": "docker-compose.yml#arturo-net bridge",
+    "subsystem": "docker-compose.yml",
+    "attack_class": "ATTACK-CLASSES.md#Container escape",
+    "starting_paths": [
+      "docker-compose.yml"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Container escape",
+    "selected_companion_blocks": [
+      "CLOUD-AND-DEPLOYMENT.md#Container and namespace boundaries",
+      "CLOUD-AND-DEPLOYMENT.md#Core discipline",
+      "CLOUD-AND-DEPLOYMENT.md#Universal moves",
+      "CLOUD-AND-DEPLOYMENT.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "docker-compose.yml"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "docker-compose.yml"
+        ],
+        "invariant": "Docker socket proxy permissions must be restricted to minimal read-only or scoped operations.",
+        "method": "source",
+        "result": "docker-proxy runs with privileged: true, POST=1, and CONTAINERS=1 exposed to arturo-net.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "arturo-docker-socket-proxy-container-escape"
+    ],
+    "unresolved": [
+      "Requires runtime validation of Docker socket daemon firewall and endpoint filters."
+    ]
+  },
+  {
+    "coverage_id": "index.js%23CORS%20middleware::index.js%23CORS%20origin%20check::index.js::WEB-PROTOCOL-AND-AUTH.md%23Cross-origin%20resource%20sharing",
+    "canonical_refs": {
+      "surface": "index.js#CORS middleware",
+      "boundary": "index.js#CORS origin check",
+      "subsystem": "index.js",
+      "attack_class": "WEB-PROTOCOL-AND-AUTH.md#Cross-origin resource sharing"
+    },
+    "surface": "index.js#CORS middleware",
+    "boundary": "index.js#CORS origin check",
+    "subsystem": "index.js",
+    "attack_class": "WEB-PROTOCOL-AND-AUTH.md#Cross-origin resource sharing",
+    "starting_paths": [
+      "index.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cross-origin resource sharing",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Cross-origin resource sharing",
+      "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+      "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+      "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "index.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "index.js"
+        ],
+        "invariant": "Unauthorized origins must not receive Access-Control-Allow-Origin: *.",
+        "method": "source",
+        "result": "Else branch in CORS middleware sets Access-Control-Allow-Origin: * for all external origins.",
+        "artifact": null
+      },
+      {
+        "agent_id": "verifier-indep",
+        "reviewed_paths": [
+          "index.js"
+        ],
+        "invariant": "Verify CORS preflight and fallback behavior.",
+        "method": "source",
+        "result": "Confirmed wildcard fallback in lines 64-68 of index.js.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "arturo-cors-wildcard-fallback"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fagent.js%23POST%20%2Fapi%2Fagent%2Fchat::src%2Fservices%2FagentCoreService.js%23procesarPeticionCore::src%2Fcontrollers%2Fagent.js::AI-AND-LLM.md%23Prompt%20injection",
+    "canonical_refs": {
+      "surface": "src/controllers/agent.js#POST /api/agent/chat",
+      "boundary": "src/services/agentCoreService.js#procesarPeticionCore",
+      "subsystem": "src/controllers/agent.js",
+      "attack_class": "AI-AND-LLM.md#Prompt injection"
+    },
+    "surface": "src/controllers/agent.js#POST /api/agent/chat",
+    "boundary": "src/services/agentCoreService.js#procesarPeticionCore",
+    "subsystem": "src/controllers/agent.js",
+    "attack_class": "AI-AND-LLM.md#Prompt injection",
+    "starting_paths": [
+      "src/controllers/agent.js",
+      "src/services/agentCoreService.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Input validation",
+    "selected_companion_blocks": [
+      "AI-AND-LLM.md#Model context and prompt boundaries",
+      "AI-AND-LLM.md#Core discipline",
+      "AI-AND-LLM.md#Universal moves",
+      "AI-AND-LLM.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/agent.js",
+      "src/services/agentCoreService.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/agent.js",
+          "src/services/agentCoreService.js"
+        ],
+        "invariant": "Agent chat processing must enforce rate limiting and input structure.",
+        "method": "source",
+        "result": "Input is structured into LangGraph workflow with system prompts; no direct code execution sinks reached without tool guards.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fbot.js%23POST%20%2Fapi%2Fbot%2Finference::src%2Fcontrollers%2Fbot.js%23doOllamaInference::src%2Fcontrollers%2Fbot.js::AI-AND-LLM.md%23Model%20manipulation",
+    "canonical_refs": {
+      "surface": "src/controllers/bot.js#POST /api/bot/inference",
+      "boundary": "src/controllers/bot.js#doOllamaInference",
+      "subsystem": "src/controllers/bot.js",
+      "attack_class": "AI-AND-LLM.md#Model manipulation"
+    },
+    "surface": "src/controllers/bot.js#POST /api/bot/inference",
+    "boundary": "src/controllers/bot.js#doOllamaInference",
+    "subsystem": "src/controllers/bot.js",
+    "attack_class": "AI-AND-LLM.md#Model manipulation",
+    "starting_paths": [
+      "src/controllers/bot.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Input validation",
+    "selected_companion_blocks": [
+      "AI-AND-LLM.md#Model context and prompt boundaries",
+      "AI-AND-LLM.md#Core discipline",
+      "AI-AND-LLM.md#Universal moves",
+      "AI-AND-LLM.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/bot.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/bot.js"
+        ],
+        "invariant": "Bot inference requests must be queued safely without arbitrary shell execution.",
+        "method": "source",
+        "result": "Pushes tasks to SQLite gpu_queue; doOllamaInference calls Ollama HTTP API directly via fetch().",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fchats.js%23GET%20%2Fapi%2Fchats::src%2Frepositories%2FchatRepository.js%23listarChats::src%2Fcontrollers%2Fchats.js::ATTACK-CLASSES.md%23SQL%20injection",
+    "canonical_refs": {
+      "surface": "src/controllers/chats.js#GET /api/chats",
+      "boundary": "src/repositories/chatRepository.js#listarChats",
+      "subsystem": "src/controllers/chats.js",
+      "attack_class": "ATTACK-CLASSES.md#SQL injection"
+    },
+    "surface": "src/controllers/chats.js#GET /api/chats",
+    "boundary": "src/repositories/chatRepository.js#listarChats",
+    "subsystem": "src/controllers/chats.js",
+    "attack_class": "ATTACK-CLASSES.md#SQL injection",
+    "starting_paths": [
+      "src/controllers/chats.js",
+      "src/repositories/chatRepository.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#SQL injection",
+    "selected_companion_blocks": [
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Data isolation across tenants and domains",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/chats.js",
+      "src/repositories/chatRepository.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/chats.js",
+          "src/repositories/chatRepository.js"
+        ],
+        "invariant": "Chat database operations must use parameterized queries.",
+        "method": "source",
+        "result": "better-sqlite3 prepare statements with ? placeholders are used consistently.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fdownload.js%23POST%20%2Fapi%2Fmedia%2Fdownload::src%2Fservices%2FmediaDownloaderService.js%23descargarMedia::src%2Fcontrollers%2Fdownload.js::ATTACK-CLASSES.md%23Command%20injection",
+    "canonical_refs": {
+      "surface": "src/controllers/download.js#POST /api/media/download",
+      "boundary": "src/services/mediaDownloaderService.js#descargarMedia",
+      "subsystem": "src/controllers/download.js",
+      "attack_class": "ATTACK-CLASSES.md#Command injection"
+    },
+    "surface": "src/controllers/download.js#POST /api/media/download",
+    "boundary": "src/services/mediaDownloaderService.js#descargarMedia",
+    "subsystem": "src/controllers/download.js",
+    "attack_class": "ATTACK-CLASSES.md#Command injection",
+    "starting_paths": [
+      "src/controllers/download.js",
+      "src/services/mediaDownloaderService.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Command injection",
+    "selected_companion_blocks": [],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/download.js",
+      "src/services/mediaDownloaderService.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/download.js",
+          "src/services/mediaDownloaderService.js"
+        ],
+        "invariant": "Media downloader URLs must not lead to arbitrary shell command execution.",
+        "method": "source",
+        "result": "Instagram shortcode is constrained by regex [A-Za-z0-9_-]+; yt-dlp arguments are passed via builder addArgs.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fmedia.js%23GET%20%2Fapi%2Fmedia::src%2Frepositories%2FmediaRepository.js%23listarMedia::src%2Fcontrollers%2Fmedia.js::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "src/controllers/media.js#GET /api/media",
+      "boundary": "src/repositories/mediaRepository.js#listarMedia",
+      "subsystem": "src/controllers/media.js",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "src/controllers/media.js#GET /api/media",
+    "boundary": "src/repositories/mediaRepository.js#listarMedia",
+    "subsystem": "src/controllers/media.js",
+    "attack_class": "ATTACK-CLASSES.md#Access control",
+    "starting_paths": [
+      "src/controllers/media.js",
+      "src/repositories/mediaRepository.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/media.js",
+      "src/repositories/mediaRepository.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/media.js",
+          "src/repositories/mediaRepository.js"
+        ],
+        "invariant": "Media listing must not leak files outside media catalog.",
+        "method": "source",
+        "result": "Queries SQLite media table with parameterized statements; res.sendFile resolves valid catalog paths.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fnota.js%23POST%20%2Fapi%2Fnotas::src%2Fcontrollers%2Fnota.js%23crearNotaHandler::src%2Fcontrollers%2Fnota.js::DATA-ISOLATION-AND-LIFECYCLE.md%23Path%20traversal",
+    "canonical_refs": {
+      "surface": "src/controllers/nota.js#POST /api/notas",
+      "boundary": "src/controllers/nota.js#crearNotaHandler",
+      "subsystem": "src/controllers/nota.js",
+      "attack_class": "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal"
+    },
+    "surface": "src/controllers/nota.js#POST /api/notas",
+    "boundary": "src/controllers/nota.js#crearNotaHandler",
+    "subsystem": "src/controllers/nota.js",
+    "attack_class": "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal",
+    "starting_paths": [
+      "src/controllers/nota.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Path traversal",
+    "selected_companion_blocks": [
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/nota.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/nota.js"
+        ],
+        "invariant": "Note files must be constrained strictly within VAULT_PATH_BOVEDA.",
+        "method": "source",
+        "result": "Found unvalidated path.join(boveda, carpeta, titulo) allowing traversal to arbitrary paths.",
+        "artifact": null
+      },
+      {
+        "agent_id": "verifier-indep",
+        "reviewed_paths": [
+          "src/controllers/nota.js"
+        ],
+        "invariant": "Path traversal must be independently verified against source sinks.",
+        "method": "source",
+        "result": "Confirmed unconstrained fs.appendFileSync in line 19.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "arturo-path-traversal-crearnota"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fstatus.js%23GET%20%2Fstatus::src%2Fmiddlewares%2FauthGuard.js%23authGuard%20bypass::src%2Fcontrollers%2Fstatus.js::WEB-PROTOCOL-AND-AUTH.md%23Information%20disclosure",
+    "canonical_refs": {
+      "surface": "src/controllers/status.js#GET /status",
+      "boundary": "src/middlewares/authGuard.js#authGuard bypass",
+      "subsystem": "src/controllers/status.js",
+      "attack_class": "WEB-PROTOCOL-AND-AUTH.md#Information disclosure"
+    },
+    "surface": "src/controllers/status.js#GET /status",
+    "boundary": "src/middlewares/authGuard.js#authGuard bypass",
+    "subsystem": "src/controllers/status.js",
+    "attack_class": "WEB-PROTOCOL-AND-AUTH.md#Information disclosure",
+    "starting_paths": [
+      "src/middlewares/authGuard.js",
+      "src/controllers/status.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Information disclosure",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Information disclosure",
+      "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+      "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+      "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/status.js",
+      "src/middlewares/authGuard.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/status.js",
+          "src/middlewares/authGuard.js"
+        ],
+        "invariant": "Unauthenticated endpoints must not disclose internal filesystem paths or model lists.",
+        "method": "source",
+        "result": "/status is exempted from authGuard and returns VAULT_PATH and Ollama model lists.",
+        "artifact": null
+      },
+      {
+        "agent_id": "verifier-indep",
+        "reviewed_paths": [
+          "src/controllers/status.js",
+          "src/middlewares/authGuard.js"
+        ],
+        "invariant": "Verify auth exemption and JSON response content.",
+        "method": "source",
+        "result": "Confirmed authGuard exemption in line 15 and disclosure in lines 22-23 of status.js.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "arturo-status-unauthenticated-info-disclosure"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fsysadmin.js%23POST%20%2Fapi%2Fsysadmin%2Fpesada::src%2Fservices%2FsysadminService.js%23alertarActualizacionPesada::src%2Fcontrollers%2Fsysadmin.js::AI-AND-LLM.md%23Prompt%20injection",
+    "canonical_refs": {
+      "surface": "src/controllers/sysadmin.js#POST /api/sysadmin/pesada",
+      "boundary": "src/services/sysadminService.js#alertarActualizacionPesada",
+      "subsystem": "src/controllers/sysadmin.js",
+      "attack_class": "AI-AND-LLM.md#Prompt injection"
+    },
+    "surface": "src/controllers/sysadmin.js#POST /api/sysadmin/pesada",
+    "boundary": "src/services/sysadminService.js#alertarActualizacionPesada",
+    "subsystem": "src/controllers/sysadmin.js",
+    "attack_class": "AI-AND-LLM.md#Prompt injection",
+    "starting_paths": [
+      "src/controllers/sysadmin.js",
+      "src/services/sysadminService.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Input validation",
+    "selected_companion_blocks": [
+      "AI-AND-LLM.md#Model context and prompt boundaries",
+      "AI-AND-LLM.md#Core discipline",
+      "AI-AND-LLM.md#Universal moves",
+      "AI-AND-LLM.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/sysadmin.js",
+      "src/services/sysadminService.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/sysadmin.js",
+          "src/services/sysadminService.js"
+        ],
+        "invariant": "Sysadmin alert payloads must not execute shell commands directly.",
+        "method": "source",
+        "result": "Payloads are summarized via Ollama and sent as push notification; command execution only creates flag files via predefined enum ('ahora'|'noche').",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fcontrollers%2Fvectores.js%23POST%20%2Fapi%2Fvectores%2Fsync::src%2Fuse-cases%2FvaultIndexer.js%23sincronizarBoveda::src%2Fcontrollers%2Fvectores.js::DATA-ISOLATION-AND-LIFECYCLE.md%23Path%20traversal",
+    "canonical_refs": {
+      "surface": "src/controllers/vectores.js#POST /api/vectores/sync",
+      "boundary": "src/use-cases/vaultIndexer.js#sincronizarBoveda",
+      "subsystem": "src/controllers/vectores.js",
+      "attack_class": "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal"
+    },
+    "surface": "src/controllers/vectores.js#POST /api/vectores/sync",
+    "boundary": "src/use-cases/vaultIndexer.js#sincronizarBoveda",
+    "subsystem": "src/controllers/vectores.js",
+    "attack_class": "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal",
+    "starting_paths": [
+      "src/controllers/vectores.js",
+      "src/use-cases/vaultIndexer.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Path traversal",
+    "selected_companion_blocks": [
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/controllers/vectores.js",
+      "src/use-cases/vaultIndexer.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/controllers/vectores.js",
+          "src/use-cases/vaultIndexer.js"
+        ],
+        "invariant": "Vector synchronization must only index markdown notes into LanceDB.",
+        "method": "source",
+        "result": "sincronizarBoveda reads vault recursively and indexes into LanceDB; writes are confined to LanceDB table.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Fmiddlewares%2FipBlocker.js%23isBlocked::src%2Fmiddlewares%2FipBlocker.js%23isBlocked::src%2Fmiddlewares%2FipBlocker.js::RESOURCE-EXHAUSTION-AND-AVAILABILITY.md%23Rate%20limit%20bypass",
+    "canonical_refs": {
+      "surface": "src/middlewares/ipBlocker.js#isBlocked",
+      "boundary": "src/middlewares/ipBlocker.js#isBlocked",
+      "subsystem": "src/middlewares/ipBlocker.js",
+      "attack_class": "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Rate limit bypass"
+    },
+    "surface": "src/middlewares/ipBlocker.js#isBlocked",
+    "boundary": "src/middlewares/ipBlocker.js#isBlocked",
+    "subsystem": "src/middlewares/ipBlocker.js",
+    "attack_class": "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Rate limit bypass",
+    "starting_paths": [
+      "index.js",
+      "src/middlewares/ipBlocker.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Rate limiting",
+    "selected_companion_blocks": [
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Rate limit bypass",
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Core discipline",
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Universal moves",
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "index.js",
+      "src/middlewares/ipBlocker.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "index.js",
+          "src/middlewares/ipBlocker.js"
+        ],
+        "invariant": "IP blocker must correctly identify and block abusive remote IP addresses.",
+        "method": "source",
+        "result": "Passing string req.ip causes fallback to 127.0.0.1, always returning false and bypassing blocking.",
+        "artifact": null
+      },
+      {
+        "agent_id": "verifier-indep",
+        "reviewed_paths": [
+          "index.js",
+          "src/middlewares/ipBlocker.js"
+        ],
+        "invariant": "Verify method signature mismatch and undeclared variable.",
+        "method": "source",
+        "result": "Confirmed isBlocked(req.ip) interface mismatch and undeclared ip in accessesSensitivePath.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "arturo-ipblocker-dysfunctional-bypass"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "src%2Ftools%2FlangchainTools.js%23guardar_boveda::src%2Ftools%2FlangchainTools.js%23guardar_boveda::src%2Ftools%2FlangchainTools.js::DATA-ISOLATION-AND-LIFECYCLE.md%23Path%20traversal",
+    "canonical_refs": {
+      "surface": "src/tools/langchainTools.js#guardar_boveda",
+      "boundary": "src/tools/langchainTools.js#guardar_boveda",
+      "subsystem": "src/tools/langchainTools.js",
+      "attack_class": "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal"
+    },
+    "surface": "src/tools/langchainTools.js#guardar_boveda",
+    "boundary": "src/tools/langchainTools.js#guardar_boveda",
+    "subsystem": "src/tools/langchainTools.js",
+    "attack_class": "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal",
+    "starting_paths": [
+      "src/tools/langchainTools.js"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Path traversal",
+    "selected_companion_blocks": [
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Path traversal",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Memory safety",
+        "reason": "Target is pure Node.js/JavaScript, not native C/C++ memory-managed binary."
+      },
+      {
+        "block": "CLIENT-SIDE.md#DOM and browser sinks",
+        "reason": "Target is a backend API service without browser-rendered HTML/DOM."
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-core",
+    "reviewed_paths": [
+      "src/tools/langchainTools.js"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-core",
+        "reviewed_paths": [
+          "src/tools/langchainTools.js"
+        ],
+        "invariant": "Destination folder must be verified to stay inside VAULT_PATH_BOVEDA.",
+        "method": "source",
+        "result": "params.carpeta_destino is concatenated without traversal verification.",
+        "artifact": null
+      },
+      {
+        "agent_id": "verifier-indep",
+        "reviewed_paths": [
+          "src/tools/langchainTools.js"
+        ],
+        "invariant": "Tool sink fs.writeFileSync must be independently checked.",
+        "method": "source",
+        "result": "Confirmed lack of validation on destFolder allows escaping vault.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "arturo-path-traversal-guardarboveda"
+    ],
+    "unresolved": []
+  }
+]

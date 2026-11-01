@@ -100,6 +100,24 @@ dbuild
 - **Autenticación**: API Keys por dispositivo (Mobile + Desktop)
 - **Body Parser**: Límite de 10MB (reducido de 50MB)
 
+### Auditoría de Seguridad Independiente (Full Audit Mode)
+
+En la versión v10 se ejecutó una auditoría de seguridad exhaustiva utilizando la skill especializada `security-audit` de Google Antigravity en modo **Full Audit**. El análisis cubrió 13 superficies de ataque (HTTP, controladores, middlewares, adaptadores de IA, base vectorial y docker-proxy), validando de forma estricta los límites de confianza y sumideros de ejecución mediante subagentes verificadores independientes.
+
+Los resultados y artefactos formales se encuentran registrados en el directorio [`.audit/`](./.audit/):
+- **[`REPORT.md`](./.audit/REPORT.md)**: Informe ejecutivo de seguridad, desglose de postura y tablas de hallazgos.
+- **[`FINDINGS-DETAIL.md`](./.audit/FINDINGS-DETAIL.md)**: Trazas fuente a sumidero, reproducciones delimitadas y casos de prueba de regresión.
+- **[`NEEDS-VALIDATION.md`](./.audit/NEEDS-VALIDATION.md)**: Aspectos sujetos a validación de topología de red (`docker-proxy`).
+- **[`findings.json`](./.audit/findings.json)**: Registros estructurados validados contra el esquema JSON oficial (`report-schema.json`).
+- **[`coverage-ledger.json`](./.audit/coverage-ledger.json)**: Matriz determinista de cobertura de superficies analizadas.
+
+#### Hallazgos Clave Identificados para Remediación:
+1. **[HIGH] Path Traversal en `POST /api/notas` (`src/controllers/nota.js`)**: Concatena `carpeta` y `titulo` sin validar contención en el Vault, permitiendo escribir o anexar archivos `.md` en rutas arbitrarias del host.
+2. **[HIGH] Path Traversal en Tool `guardar_boveda` (`src/tools/langchainTools.js`)**: Concatena `params.carpeta_destino` sin saneamiento en `path.join()`.
+3. **[HIGH] Evasión Silenciosa de `ipBlocker` (`index.js` y `src/middlewares/ipBlocker.js`)**: Desajuste en el paso de parámetros (`req.ip` en lugar de `req`) provoca que todas las IPs externas colapsen a `'127.0.0.1'`, quedando en whitelist perpetua sin bloquear jamás.
+4. **[MEDIUM] Wildcard CORS Permisivo (`index.js`)**: Emisión de encabezado `Access-Control-Allow-Origin: *` como fallback para orígenes externos no contemplados.
+5. **[MEDIUM] Divulgación de Información en `/status` (`src/controllers/status.js`)**: Exposición no autenticada de la ruta física del vault (`VAULT_PATH`) y del inventario de modelos de Ollama.
+
 ### Variables de Entorno
 
 Ver [.env.example](./src/.env.example) para documentación completa.

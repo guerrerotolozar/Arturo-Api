@@ -1,0 +1,525 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-cors-wildcard-fallback",
+    "title": "Permissive Wildcard Access-Control-Allow-Origin Fallback in CORS Middleware",
+    "description": "In index.js, the CORS middleware defines an allowedOrigins allowlist but implements an else branch that sets 'Access-Control-Allow-Origin: *' for all unlisted origins. This completely opens cross-origin read and preflight access to any website on the internet.",
+    "root_cause": "Setting Access-Control-Allow-Origin: * in the fallback branch of the CORS origin verification logic.",
+    "intended_behavior": "The application should reject or omit Access-Control-Allow-Origin headers when the requesting origin is not in allowedOrigins.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "index.js",
+        "line": 56,
+        "scope": "CORS middleware",
+        "description": "Middleware intercepts incoming request and reads req.headers.origin."
+      },
+      {
+        "kind": "propagation",
+        "file": "index.js",
+        "line": 60,
+        "scope": "CORS middleware",
+        "description": "Evaluates if origin is in allowedOrigins ['http://localhost:3000', 'http://localhost:5173']."
+      },
+      {
+        "kind": "sink",
+        "file": "index.js",
+        "line": 65,
+        "scope": "CORS middleware",
+        "description": "Sets Access-Control-Allow-Origin: * when the origin does not match the allowlist."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "index.js",
+        "line": 65,
+        "description": "res.header('Access-Control-Allow-Origin', '*'); // Fallback para desarrollo"
+      },
+      {
+        "file": "index.js",
+        "line": 70,
+        "description": "if (req.method === 'OPTIONS') return res.sendStatus(200);"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "user_interaction",
+        "description": "Victim visits an external malicious website while connected to the network where Arturo API is reachable."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker hosts a malicious website that issues fetch('http://localhost:3000/status') from the victim's browser.",
+      "payloads": [
+        "fetch('http://localhost:3000/status', { mode: 'cors' }).then(r => r.json()).then(data => console.log(data));"
+      ],
+      "instructions": [
+        "Send preflight OPTIONS request with 'Origin: https://evil.example.com'.",
+        "Observe Access-Control-Allow-Origin: * in the response."
+      ],
+      "observed_result": "Response contains Access-Control-Allow-Origin: *, allowing arbitrary websites to read unauthenticated responses."
+    },
+    "remediation": {
+      "strategy": "Do not set Access-Control-Allow-Origin for unauthorized origins. Only set it when the origin matches allowedOrigins.",
+      "code_changes": [
+        {
+          "file_name": "index.js",
+          "fixed_code": "app.use((req, res, next) => {\n    const allowedOrigins = ['http://localhost:3000', 'http://localhost:5173'];\n    const origin = req.headers.origin;\n    if (allowedOrigins.includes(origin)) {\n        res.header('Access-Control-Allow-Origin', origin);\n        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');\n        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-arturo-key, x-request-id');\n    }\n    if (req.method === 'OPTIONS') return res.sendStatus(allowedOrigins.includes(origin) ? 200 : 403);\n    next();\n});"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any external website visited by the user can trigger the browser to send cross-origin requests."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Permits reading sensitive data from unauthenticated endpoints (like /status) and interacting with endpoints if keys are absent."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Directly visible in index.js lines 64-68 and independently confirmed."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "arturo-docker-socket-proxy-container-escape",
+    "title": "Docker Socket Proxy Privileged Access and Lateral Container Control",
+    "description": "docker-compose.yml runs tecnativa/docker-socket-proxy with privileged: true, POST=1, and CONTAINERS=1 exposed on the internal arturo-net bridge network. The Arturo-Api container connects to http://docker-proxy:2375 to manage Whisper-Service and monitor container events, which permits lateral container manipulation.",
+    "claimed_root_cause": "Granting POST and CONTAINERS permissions on the shared Docker socket proxy without restricting specific endpoint paths (such as allowing only kill/start on Whisper-Service).",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "docker-compose.yml",
+        "line": 73,
+        "scope": "services.docker-proxy",
+        "description": "Exposes docker-proxy on arturo-net with POST=1, CONTAINERS=1, and /var/run/docker.sock mounted."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/adapters/whisperAdapter.js",
+        "line": 13,
+        "scope": "controlContainer",
+        "description": "Arturo-Api sends POST requests to http://docker-proxy:2375/v1.41/containers/.../start."
+      },
+      {
+        "kind": "sink",
+        "file": "docker-compose.yml",
+        "line": 83,
+        "scope": "services.docker-proxy",
+        "description": "Docker socket proxy forwards container control requests directly to the host Docker daemon."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "docker-compose.yml",
+        "line": 76,
+        "description": "privileged: true"
+      },
+      {
+        "file": "docker-compose.yml",
+        "line": 81,
+        "description": "POST=1"
+      },
+      {
+        "file": "docker-compose.yml",
+        "line": 83,
+        "description": "- /var/run/docker.sock:/var/run/docker.sock:ro"
+      }
+    ],
+    "blockers": [
+      "Whether lateral containers or compromised Node.js processes can exploit docker-proxy depends on host network firewall rules and Docker socket proxy path filtering configurations not established in the repository.",
+      "Whether the design intentionally grants Arturo-Api administrative control over subordinate containers."
+    ],
+    "validation_plan": {
+      "local": "Inspect whether docker-proxy enforces path-level authorization or allows arbitrary container creation and destruction from any container in arturo-net.",
+      "deployment": "Owner should verify if docker-proxy allows POST /v1.41/containers/create or restrict docker-proxy permissions to only start/stop for Whisper-Service."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-ipblocker-dysfunctional-bypass",
+    "title": "Broken Security Control and Silent Whitelist Bypass in ipBlocker Middleware",
+    "description": "The IP blocking middleware in src/middlewares/ipBlocker.js is completely non-functional due to an interface mismatch: index.js passes req.ip (string) to ipBlocker.isBlocked(), but isBlocked() expects an Express request object and attempts to access (req.socket || req).remoteAddress. Because strings lack remoteAddress, the variable defaults to '127.0.0.1' on line 59, which matches the hardcoded internal whitelist on line 63, causing every request from every IP to be treated as whitelisted localhost. Additionally, accessesSensitivePath references an undeclared identifier 'ip' that causes a runtime ReferenceError.",
+    "root_cause": "Interface contract mismatch passing a string instead of request object, triggering a fallback to 127.0.0.1 which is immediately whitelisted, plus an unreferenced variable in error logging.",
+    "intended_behavior": "The middleware should receive the client request, reliably extract the client's actual remote IP, track request counts across a sliding window, log sensitive path attempts without runtime errors, and enforce blocking for abusive IPs.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "index.js",
+        "line": 45,
+        "scope": "app.use(ipBlocker)",
+        "description": "Global middleware invokes ipBlocker.isBlocked(req.ip), passing a string."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/middlewares/ipBlocker.js",
+        "line": 58,
+        "scope": "IpBlocker.isBlocked",
+        "description": "Receives string as parameter req; (req.socket || req).remoteAddress evaluates to undefined."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/middlewares/ipBlocker.js",
+        "line": 59,
+        "scope": "IpBlocker.isBlocked",
+        "description": "Evaluates fallback '127.0.0.1', setting ip = '127.0.0.1'."
+      },
+      {
+        "kind": "sink",
+        "file": "src/middlewares/ipBlocker.js",
+        "line": 63,
+        "scope": "IpBlocker.isBlocked",
+        "description": "Evaluates ip === '127.0.0.1' which is always true, returning false and completely bypassing blocking."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "index.js",
+        "line": 46,
+        "description": "if (ipBlocker.isBlocked(req.ip)) {"
+      },
+      {
+        "file": "src/middlewares/ipBlocker.js",
+        "line": 59,
+        "description": "const ip = (req.socket || req).remoteAddress || '127.0.0.1';"
+      },
+      {
+        "file": "src/middlewares/ipBlocker.js",
+        "line": 63,
+        "description": "if (ip === '127.0.0.1' || ip === '::1' || ... ) return false;"
+      },
+      {
+        "file": "src/middlewares/ipBlocker.js",
+        "line": 96,
+        "description": "console.warn(`[IP_BLOCKER] ${ip} accedió a ruta sensible: ${blockedPath}`); // ReferenceError: ip is not defined"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "system_configuration",
+        "description": "Default server configuration with ipBlocker active."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker scans the server or sends thousands of brute-force requests from any external IP.",
+      "payloads": [
+        "GET /.env HTTP/1.1\r\nHost: 100.103.230.95:3000\r\n\r\n"
+      ],
+      "instructions": [
+        "Send requests from external IP to blocked paths or at high volume.",
+        "Observe that isBlocked() always returns false."
+      ],
+      "observed_result": "ipBlocker never blocks any external IP address regardless of request count or path accessed."
+    },
+    "remediation": {
+      "strategy": "Pass the full req object from index.js, extract client IP cleanly, pass ip into accessesSensitivePath(req, ip), and fix windowStart tracking in exceedsLimit.",
+      "code_changes": [
+        {
+          "file_name": "index.js",
+          "fixed_code": "app.use((req, res, next) => {\n    if (ipBlocker.isBlocked(req)) {\n        return res.status(403).json({\n            error: 'Acceso denegado',\n            mensaje: 'Tu IP ha sido bloqueada temporalmente por actividad sospechosa.'\n        });\n    }\n    next();\n});"
+        },
+        {
+          "file_name": "src/middlewares/ipBlocker.js",
+          "fixed_code": "isBlocked(req) {\n    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';\n    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('10.') || ip.startsWith('172.') || ip.startsWith('192.168.')) return false;\n    if (this.blockedIps.has(ip)) return true;\n    if (this.accessesSensitivePath(req, ip)) return true;\n    if (this.exceedsLimit(ip)) { this.blockIps(ip); return true; }\n    return false;\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "critical",
+        "reason": "Applies to 100% of incoming HTTP requests; the control is unconditionally bypassed by design."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Completely disables the anti-brute-force, anti-scanning, and anti-DoS defense layer of the API."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Deterministically verified in source code and confirmed by independent subagent analysis."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-path-traversal-crearnota",
+    "title": "Path Traversal and Arbitrary File Write in POST /api/notas",
+    "description": "The note creation handler in src/controllers/nota.js accepts 'carpeta' and 'titulo' parameters directly from the request body and joins them to the vault root without sanitization or path containment validation. This allows writing or appending arbitrary markdown files outside the intended vault directory across any filesystem path writable by the process.",
+    "root_cause": "Direct string concatenation with path.join() using untrusted user input without verifying that the resolved path is contained within the base vault directory (path.resolve(target).startsWith(path.resolve(vault) + path.sep)).",
+    "intended_behavior": "The application should restrict note creation strictly to subdirectories inside VAULT_PATH_BOVEDA, canonicalizing all path components and rejecting any sequence containing directory traversal or path separators in filenames.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "src/controllers/nota.js",
+        "line": 5,
+        "scope": "crearNotaHandler",
+        "description": "Extracts 'titulo', 'contexto', and 'carpeta' directly from req.body without validation."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/controllers/nota.js",
+        "line": 10,
+        "scope": "crearNotaHandler",
+        "description": "Joins VAULT_PATH_BOVEDA and untrusted 'carpeta' using path.join(), resolving directory traversal sequences."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/controllers/nota.js",
+        "line": 11,
+        "scope": "crearNotaHandler",
+        "description": "Joins the traversal path with untrusted '${titulo}.md', creating an arbitrary destination path."
+      },
+      {
+        "kind": "sink",
+        "file": "src/controllers/nota.js",
+        "line": 19,
+        "scope": "crearNotaHandler",
+        "description": "Writes or appends arbitrary file content using fs.appendFileSync() to the resolved path outside the vault."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "src/controllers/nota.js",
+        "line": 10,
+        "description": "const rutaCarpeta = path.join(boveda, carpeta);"
+      },
+      {
+        "file": "src/controllers/nota.js",
+        "line": 11,
+        "description": "const rutaArchivo = path.join(rutaCarpeta, `${titulo}.md`);"
+      },
+      {
+        "file": "src/controllers/nota.js",
+        "line": 19,
+        "description": "fs.appendFileSync(rutaArchivo, contenido, 'utf8');"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Authenticated with a valid X-Arturo-Key, or unauthenticated if API keys are not configured in .env."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "Target directory must be writable by user 1000:1000 in the container or host."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A caller sends a POST /api/notas payload with traversal sequences in carpeta and titulo.",
+      "payloads": [
+        "{\"titulo\": \"test_escape\", \"contexto\": \"malicious_content\", \"carpeta\": \"../../../../tmp\"}"
+      ],
+      "instructions": [
+        "Send HTTP POST request to /api/notas with header 'Content-Type: application/json' and payload containing traversal.",
+        "Observe the HTTP 201 response containing the escaped absolute path.",
+        "Verify file creation at /tmp/test_escape.md."
+      ],
+      "observed_result": "File is created outside VAULT_PATH_BOVEDA at /tmp/test_escape.md with content appended, confirmed by response JSON displaying the full escaped path."
+    },
+    "remediation": {
+      "strategy": "Canonicalize the target path with path.resolve() and enforce that the resolved path strictly starts with the resolved vault base path followed by the path separator. Additionally sanitize 'titulo' to allow only alphanumeric characters, dashes, and underscores.",
+      "code_changes": [
+        {
+          "file_name": "src/controllers/nota.js",
+          "fixed_code": "const resolvedBase = path.resolve(boveda);\nconst safeTitulo = titulo.replace(/[^a-zA-Z0-9 _-]/g, '').trim();\nconst rutaCarpeta = path.resolve(boveda, carpeta);\nif (!rutaCarpeta.startsWith(resolvedBase + path.sep) && rutaCarpeta !== resolvedBase) {\n    return res.status(400).json({ error: 'Ruta no permitida fuera de la bóveda.' });\n}\nconst rutaArchivo = path.join(rutaCarpeta, `${safeTitulo}.md`);"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "The endpoint accepts JSON input directly and has zero sanitization or boundary checks."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Allows arbitrary file write outside the designated sandbox and knowledge base, potentially altering application scripts or system files."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Confirmed through static code analysis and verified independently by a dedicated verification subagent."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-path-traversal-guardarboveda",
+    "title": "Path Traversal in LangChain Agent Tool guardar_boveda",
+    "description": "The guardar_boveda tool in src/tools/langchainTools.js sanitizes params.titulo using a regular expression, but directly passes params.carpeta_destino to path.join() with VAULT_PATH_BOVEDA without validation. A prompt injection or crafted LLM instruction can write markdown files anywhere on the host filesystem writable by the application.",
+    "root_cause": "Incomplete input validation where the filename is sanitized but the destination folder parameter is concatenated without traversal verification.",
+    "intended_behavior": "The tool should validate that destFolder resolves within VAULT_PATH_BOVEDA before creating directories or writing files.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "src/tools/langchainTools.js",
+        "line": 61,
+        "scope": "guardar_boveda",
+        "description": "Tool receives params object from the LLM agent execution pipeline."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/tools/langchainTools.js",
+        "line": 65,
+        "scope": "guardar_boveda",
+        "description": "Computes destFolder = path.join(VAULT_PATH_BOVEDA, params.carpeta_destino) without traversal checks."
+      },
+      {
+        "kind": "sink",
+        "file": "src/tools/langchainTools.js",
+        "line": 90,
+        "scope": "guardar_boveda",
+        "description": "Writes markdown content to the traversal path using fs.writeFileSync()."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "src/tools/langchainTools.js",
+        "line": 65,
+        "description": "const destFolder = path.join(VAULT_PATH_BOVEDA, params.carpeta_destino);"
+      },
+      {
+        "file": "src/tools/langchainTools.js",
+        "line": 71,
+        "description": "const filePath = path.join(destFolder, `${safeName}.md`);"
+      },
+      {
+        "file": "src/tools/langchainTools.js",
+        "line": 90,
+        "description": "fs.writeFileSync(filePath, markdownFinal, 'utf8');"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "user_interaction",
+        "description": "Requires the LLM agent to call the guardar_boveda tool with an attacker-influenced or prompt-injected carpeta_destino."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker provides input that tricks the agent into storing a note with carpeta_destino='../../../../tmp'.",
+      "payloads": [
+        "{\"titulo\": \"pwned\", \"carpeta_destino\": \"../../../../tmp\", \"yaml_tipo\": \"note\", \"yaml_estado\": \"active\", \"yaml_tags\": [\"test\"], \"yaml_descripcion\": \"test\", \"contenido_markdown\": \"compromised\"}"
+      ],
+      "instructions": [
+        "Simulate calling guardar_boveda.func(payload) with traversal in carpeta_destino.",
+        "Check that fs.writeFileSync writes to /tmp/pwned.md."
+      ],
+      "observed_result": "File is written directly to /tmp/pwned.md outside the vault boundary."
+    },
+    "remediation": {
+      "strategy": "Resolve destFolder with path.resolve() and verify that it starts with the resolved VAULT_PATH_BOVEDA base path.",
+      "code_changes": [
+        {
+          "file_name": "src/tools/langchainTools.js",
+          "fixed_code": "const resolvedVault = path.resolve(VAULT_PATH_BOVEDA);\nconst destFolder = path.resolve(VAULT_PATH_BOVEDA, params.carpeta_destino);\nif (!destFolder.startsWith(resolvedVault + path.sep) && destFolder !== resolvedVault) {\n    return 'Error: La carpeta de destino debe estar dentro de la Bóveda.';\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Requires triggering tool usage via conversation or prompt injection."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Allows writing files outside the vault to arbitrary filesystem locations."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Confirmed in source code and verified independently."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "arturo-status-unauthenticated-info-disclosure",
+    "title": "Unauthenticated Information Disclosure of Host Paths and Ollama Models in /status",
+    "description": "The GET /status endpoint is exempted from authGuard authentication and discloses sensitive internal system details including the absolute vault filesystem path (VAULT_PATH), local Ollama model names, and API configuration flags.",
+    "root_cause": "Exposing internal environment paths and infrastructure configurations in an unauthenticated healthcheck endpoint.",
+    "intended_behavior": "A public health-check should return only minimal status indicators ({ status: 'ok' }) without disclosing host paths or internal service metadata.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "src/middlewares/authGuard.js",
+        "line": 15,
+        "scope": "authGuard",
+        "description": "Exempts GET /status from authentication."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/controllers/status.js",
+        "line": 7,
+        "scope": "obtenerStatus",
+        "description": "Reads vault notes, Ollama models, and VAULT_PATH."
+      },
+      {
+        "kind": "sink",
+        "file": "src/controllers/status.js",
+        "line": 18,
+        "scope": "obtenerStatus",
+        "description": "Responds with JSON containing VAULT_PATH and full model list to unauthenticated clients."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "src/middlewares/authGuard.js",
+        "line": 15,
+        "description": "if (req.path === '/status' && req.method === 'GET') return next();"
+      },
+      {
+        "file": "src/controllers/status.js",
+        "line": 22,
+        "description": "vault: { notas: notas.length, carpetas: carpetas.size, path: VAULT_PATH },"
+      },
+      {
+        "file": "src/controllers/status.js",
+        "line": 23,
+        "description": "ollama, tavily: { configurada: !!TAVILY_API_KEY }"
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "None. Accessible to any unauthenticated caller on the network."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An unauthenticated caller sends GET /status.",
+      "payloads": [
+        "GET /status HTTP/1.1\r\nHost: 100.103.230.95:3000\r\n\r\n"
+      ],
+      "instructions": [
+        "Issue curl -s http://localhost:3000/status without auth headers.",
+        "Inspect the returned JSON payload."
+      ],
+      "observed_result": "Full JSON containing VAULT_PATH (/home/ronald/ARTURO/Cerebro/Boveda), notes count, and array of Ollama models."
+    },
+    "remediation": {
+      "strategy": "Return only { status: 'ok', uptime: ... } for unauthenticated health checks, and require authentication for detailed system diagnostics.",
+      "code_changes": [
+        {
+          "file_name": "src/controllers/status.js",
+          "fixed_code": "async function obtenerStatus(req, res) {\n    res.json({\n        servidor: 'Arturo',\n        estado: 'operativo',\n        uptime: Math.floor(process.uptime())\n    });\n}\nmodule.exports = obtenerStatus;"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Requires zero credentials and is directly accessible to anyone on the network."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Aids attacker reconnaissance by revealing filesystem layout, username, and AI service capabilities."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Confirmed in source code and independently verified."
+    }
+  }
+]

@@ -52,10 +52,18 @@ function authGuard(req, res, next) {
 }
 
 function logBloqueo(req) {
-    const fs = require('fs');
-    const path = require('path');
-    const logEntry = `[${new Date().toISOString()}] ⛔ Bloqueado: ${req.ip} → ${req.method} ${req.path}\n`;
-    fs.appendFileSync(path.join(__dirname, '../../seguridad.log'), logEntry);
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const logEntry = `[${new Date().toISOString()}] ⛔ Bloqueado: ${req.ip} → ${req.method} ${req.path}\n`;
+        
+        // Escribir en /app/seguridad.log (que ahora pertenece a 1000:1000)
+        const logPath = path.join(__dirname, '../../seguridad.log');
+        fs.appendFileSync(logPath, logEntry);
+    } catch (err) {
+        console.error('❌ ERROR CRÍTICO DE PERMISOS: No se pudo escribir en seguridad.log. ¡Revisa la propiedad de los archivos en Docker!');
+        throw err; // Lanzar el error para avisar y que no pase desapercibido
+    }
 }
 
 module.exports = authGuard;

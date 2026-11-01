@@ -43,7 +43,7 @@ app.use(securityHeaders);
 // v10: IP Blocker (anti-scanning, anti-brute-force)
 const ipBlocker = require('./src/middlewares/ipBlocker');
 app.use((req, res, next) => {
-    if (ipBlocker.isBlocked(req.ip)) {
+    if (ipBlocker.isBlocked(req)) {
         return res.status(403).json({
             error: 'Acceso denegado',
             mensaje: 'Tu IP ha sido bloqueada temporalmente por actividad sospechosa.'
@@ -57,17 +57,18 @@ app.use((req, res, next) => {
     const allowedOrigins = ['http://localhost:3000', 'http://localhost:5173'];
     const origin = req.headers.origin;
 
-    if (allowedOrigins.includes(origin)) {
+    if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-arturo-key, x-request-id');
-    } else {
-        res.header('Access-Control-Allow-Origin', '*'); // Fallback para desarrollo
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-arturo-key, x-request-id');
     }
 
-    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    if (req.method === 'OPTIONS') {
+        if (!origin || allowedOrigins.includes(origin)) {
+            return res.sendStatus(200);
+        }
+        return res.sendStatus(403);
+    }
     next();
 });
 

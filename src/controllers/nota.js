@@ -4,11 +4,23 @@ const path = require('path');
 async function crearNotaHandler(req, res) {
     const { titulo, contexto, carpeta = 'Inbox' } = req.body;
     if (!titulo || !contexto) return res.status(400).json({ error: 'Faltan titulo y contexto.' });
-    console.log(`[NOTA] Agregando a: "${titulo}"`);
+
+    // Sanitizar título para evitar secuencias de path traversal en el nombre
+    const safeTitulo = titulo.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+    if (!safeTitulo) return res.status(400).json({ error: 'Título inválido.' });
+
+    console.log(`[NOTA] Agregando a: "${safeTitulo}"`);
     try {
         const boveda = process.env.VAULT_PATH_BOVEDA || '/home/ronald/ARTURO/Cerebro/Boveda';
-        const rutaCarpeta = path.join(boveda, carpeta);
-        const rutaArchivo = path.join(rutaCarpeta, `${titulo}.md`);
+        const resolvedBase = path.resolve(boveda);
+        const rutaCarpeta = path.resolve(boveda, carpeta);
+
+        // Prevenir Path Traversal: asegurar que rutaCarpeta permanezca estrictamente dentro del Vault
+        if (!rutaCarpeta.startsWith(resolvedBase + path.sep) && rutaCarpeta !== resolvedBase) {
+            return res.status(400).json({ error: 'Ruta no permitida fuera de la bóveda.' });
+        }
+
+        const rutaArchivo = path.join(rutaCarpeta, `${safeTitulo}.md`);
         
         if (!fs.existsSync(rutaCarpeta)) {
             fs.mkdirSync(rutaCarpeta, { recursive: true });

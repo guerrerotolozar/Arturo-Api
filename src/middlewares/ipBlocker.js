@@ -56,11 +56,22 @@ class IpBlocker {
      * Verifica si una IP debería ser bloqueada
      */
     isBlocked(req) {
-        const ip = (req.socket || req).remoteAddress || '127.0.0.1';
-        
+        // Soporta tanto el objeto req de Express como una cadena de IP directa
+        let ip = '127.0.0.1';
+        if (typeof req === 'string') {
+            ip = req;
+        } else if (req) {
+            ip = req.ip || req.socket?.remoteAddress || req.headers?.['x-forwarded-for']?.split(',')[0]?.trim() || '127.0.0.1';
+        }
+
+        // Normalizar prefijo IPv6 de IPv4 mapeada
+        if (ip.startsWith('::ffff:')) {
+            ip = ip.replace('::ffff:', '');
+        }
+
         // --- WHITELIST ---
         // Nunca bloquear peticiones internas (Localhost o redes de Docker)
-        if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || 
+        if (ip === '127.0.0.1' || ip === '::1' || 
             ip.startsWith('10.') || ip.startsWith('172.') || ip.startsWith('192.168.')) {
             return false;
         }
@@ -71,7 +82,8 @@ class IpBlocker {
         }
 
         // Verificar si accede a rutas sensibles
-        if (this.accessesSensitivePath(req)) {
+        if (this.accessesSensitivePath(req, ip)) {
+            this.blockIps(ip);
             return true;
         }
 
@@ -87,8 +99,8 @@ class IpBlocker {
     /**
      * Verifica si la IP accede a rutas sensibles
      */
-    accessesSensitivePath(req) {
-        const path = (req.path || req.url || '').toLowerCase();
+    accessesSensitivePath(req, ip) {
+        const path = (req?.path || req?.url || (typeof req === 'string' ? req : '')).toLowerCase();
 
         // Verificar rutas exactas
         for (const blockedPath of BLOCKED_PATHS) {
@@ -115,12 +127,16 @@ class IpBlocker {
     exceedsLimit(ip) {
         const now = Date.now();
 
-        // Limpiar ventanas expiradas
-        this.windowStart = now;
+        // Limpiar ventana si ya expiró el período de 1 hora
+        if (now - this.windowStart > this.WINDOW_MS) {
+            this.requestCounts.clear();
+            this.windowStart = now;
+        }
 
         // Obtener o inicializar contador
         let count = this.requestCounts.get(ip) || 0;
-        this.requestCounts.set(ip, count + 1);
+        count += 1;
+        this.requestCounts.set(ip, count);
 
         // Verificar si excede el límite
         if (count > this.MAX_REQUESTS) {

@@ -62,12 +62,19 @@ const guardar_boveda = tool(
         try {
             console.log(`[LANGCHAIN TOOL] guardar_boveda: "${params.titulo}"`);
             
-            const destFolder = path.join(VAULT_PATH_BOVEDA, params.carpeta_destino);
+            const safeName = params.titulo.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+            if (!safeName) return "Error: El título contiene caracteres inválidos.";
+
+            const resolvedVault = path.resolve(VAULT_PATH_BOVEDA);
+            const destFolder = path.resolve(VAULT_PATH_BOVEDA, params.carpeta_destino || '');
+            if (!destFolder.startsWith(resolvedVault + path.sep) && destFolder !== resolvedVault) {
+                return 'Error: La carpeta de destino debe estar estrictamente dentro de la Bóveda.';
+            }
+
             if (!fs.existsSync(destFolder)) {
                 fs.mkdirSync(destFolder, { recursive: true });
             }
 
-            const safeName = params.titulo.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
             const filePath = path.join(destFolder, `${safeName}.md`);
             
             const hoy = new Date().toISOString().split('T')[0];

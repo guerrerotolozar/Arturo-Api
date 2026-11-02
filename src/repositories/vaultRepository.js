@@ -31,13 +31,15 @@ function leerNucleoArturo() {
  * @param {string} dir
  * @returns {Array<{ruta, nombre, contenido}>}
  */
+const IGNORED_VAULT_DIRS = new Set(['node_modules', 'BotTrading', 'Boveda', 'Boveda_AI', 'vault-template', 'vault', 'lancedb_data', 'src', 'docs']);
+
 function leerVaultRecursivo(dir = VAULT_PATH) {
     const resultados = [];
     try {
         for (const entrada of fs.readdirSync(dir, { withFileTypes: true })) {
             const ruta = path.join(dir, entrada.name);
             if (entrada.isDirectory()) {
-                if (entrada.name.startsWith('.') || entrada.name === 'node_modules') continue;
+                if (entrada.name.startsWith('.') || IGNORED_VAULT_DIRS.has(entrada.name)) continue;
                 resultados.push(...leerVaultRecursivo(ruta));
             } else if (entrada.name.endsWith('.md')) {
                 try {

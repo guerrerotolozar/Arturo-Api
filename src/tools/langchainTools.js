@@ -104,7 +104,7 @@ ${params.contenido_markdown}
         name: "guardar_boveda",
         description: "Crea y almacena una nota estructurada en formato Markdown en la base de datos interna para persistir conocimiento técnico o hallazgos importantes.",
         schema: z.object({
-            carpeta_destino: z.string().describe("Ruta exacta dentro de la Bóveda (ej. 'OPERACIONES/Laboratorio Tech/Conceptos')"),
+            carpeta_destino: z.string().describe("Ruta exacta dentro de la Bóveda según estructura.yaml (ej. 'OPERACIONES/Conceptos/IA', 'OPERACIONES/Herramientas/Infraestructura', 'OPERACIONES/_Bandeja')"),
             titulo: z.string().describe("Título del archivo"),
             yaml_tipo: z.string().describe("Categoría principal (ej. 'tecnologia', 'concepto')"),
             yaml_estado: z.string().describe("Estado actual (ej. 'activo', 'borrador')"),

@@ -49,7 +49,7 @@ function iniciarWatcherCerebro() {
     // Inicializamos chokidar
     // ignoreInitial: true para no disparar eventos por los archivos que ya existen al arrancar
     const watcher = chokidar.watch(VAULT_PATH_BOVEDA, {
-        ignored: /(^|[\/\\])\../, // ignora archivos ocultos como .git o .obsidian
+        ignored: /(^|[\/\\])(\..|BotTrading|Boveda|Boveda_AI|vault-template|vault|node_modules)/, // ignora ocultos y carpetas huérfanas
         persistent: true,
         ignoreInitial: true,
         awaitWriteFinish: {

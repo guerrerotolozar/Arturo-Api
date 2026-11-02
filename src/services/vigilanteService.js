@@ -63,15 +63,17 @@ He encontrado esta nota multimedia aislada en la bandeja de entrada. Contiene in
 Tu tarea es leer el contenido de esta nota aislada y generar una "Nota Conceptual" universal, atemporal y académica.
 La nueva nota debe extraer los conceptos teóricos y prácticos fundamentales. NO hagas referencia a "el autor del video dice" o "en el video se muestra". Debe redactarse como una wiki de conocimiento puro y aplicable.
 
-ESTRUCTURA DE CARPETAS ACTUAL:
-Tu conocimiento debe guardarse dentro de la carpeta: "OPERACIONES/Laboratorio Tech/Conceptos".
-Allí existen subcarpetas como:
-- Desarrollo
-- Herramientas (subcarpetas: APIs y Testing, Bases de Datos, Frameworks y Librerias, Infraestructura, Lenguajes, Multimedia)
+ESTRUCTURA DE CARPETAS ACTUAL (v2):
+Tu conocimiento debe guardarse dentro de la carpeta: "OPERACIONES/Conceptos".
+Allí existen subcarpetas cerradas por dominio:
 - IA
-- Trading
+- Agentes
+- Desarrollo
+- Automatizacion
+- Datos
+- Multimedia
 
-Elige la ruta más adecuada para este nuevo concepto. Si no encaja perfectamente en ninguna de las existentes, puedes inventar una nueva subcarpeta bajo "Conceptos" o bajo "Herramientas".
+Elige la ruta más adecuada entre esas subcarpetas de "OPERACIONES/Conceptos" (ej: "OPERACIONES/Conceptos/IA"). No inventes carpetas nuevas; si no encaja, usa "OPERACIONES/_Bandeja".
 
 === CONTENIDO DE LA NOTA AISLADA ===
 ${objetivo.content.substring(0, 8000)}
@@ -82,7 +84,7 @@ ${objetivo.content.substring(0, 8000)}
         const llm = new ChatOllama({ baseUrl, model: OLLAMA_MODEL, temperature: 0.2 });
         
         const schemaCuraduria = z.object({
-            ruta_relativa: z.string().describe("Ruta del vault donde se guardará la nota. Ej: OPERACIONES/Laboratorio Tech/Conceptos/IA"),
+            ruta_relativa: z.string().describe("Ruta del vault donde se guardará la nota. Ej: OPERACIONES/Conceptos/IA"),
             titulo_nota: z.string().describe("Un título corto, descriptivo y universal (Ej: Optimizacion Bayesiana en Python)"),
             contenido_markdown: z.string().describe("Contenido teórico detallado formateado en Markdown. Incluye el # Título principal.")
         });
@@ -95,7 +97,10 @@ ${objetivo.content.substring(0, 8000)}
         
         const tituloBruto = curado.titulo_nota || "Concepto_Curado_Automatico";
         const contenidoBruto = curado.contenido_markdown || "Contenido no generado.";
-        let rutaRelativa = curado.ruta_relativa || 'OPERACIONES/Laboratorio Tech/Conceptos/Otros';
+        let rutaRelativa = curado.ruta_relativa || 'OPERACIONES/_Bandeja';
+        if (rutaRelativa.includes('Laboratorio Tech/Conceptos')) {
+            rutaRelativa = rutaRelativa.replace('OPERACIONES/Laboratorio Tech/Conceptos', 'OPERACIONES/Conceptos');
+        }
         
         const safeTitle = String(tituloBruto).replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
         

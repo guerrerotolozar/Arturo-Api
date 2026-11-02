@@ -3,6 +3,8 @@
  * 
  * Funciones de utilidad para horarios y tiempo.
  */
+const { ENABLE_TRADING_SCHEDULE } = require('../config/env');
+
 let manualPause = false;
 
 function setManualPause(val) {
@@ -15,6 +17,7 @@ function isManualPaused() {
 }
 
 function isTradingHours() {
+    if (!ENABLE_TRADING_SCHEDULE) return false;
     if (manualPause) return false;
     const now = new Date();
     const formatter = new Intl.DateTimeFormat('en-US', {

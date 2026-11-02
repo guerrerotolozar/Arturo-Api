@@ -95,6 +95,11 @@ const GPU_UTIL_THRESHOLD_PCT = parseInt(process.env.GPU_UTIL_THRESHOLD_PCT || '8
 const GPU_QUEUE_CHECK_INTERVAL_MS = parseInt(process.env.GPU_QUEUE_CHECK_INTERVAL_MS || '30000', 10)
 
 // ============================================================
+// TRADING SCHEDULE
+// ============================================================
+const ENABLE_TRADING_SCHEDULE = process.env.ENABLE_TRADING_SCHEDULE === 'true';
+
+// ============================================================
 // SERVIDOR
 // ============================================================
 const PORT = process.env.PORT
@@ -156,5 +161,6 @@ module.exports = {
     COOKIES_PATH,
     GPU_VRAM_THRESHOLD_MB,
     GPU_UTIL_THRESHOLD_PCT,
-    GPU_QUEUE_CHECK_INTERVAL_MS
+    GPU_QUEUE_CHECK_INTERVAL_MS,
+    ENABLE_TRADING_SCHEDULE
 };

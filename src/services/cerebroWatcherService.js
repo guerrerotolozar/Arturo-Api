@@ -48,8 +48,15 @@ function iniciarWatcherCerebro() {
 
     // Inicializamos chokidar
     // ignoreInitial: true para no disparar eventos por los archivos que ya existen al arrancar
+    const ignoredDirs = new Set(['BotTrading', 'Boveda', 'Boveda_AI', 'vault-template', 'vault', 'node_modules']);
     const watcher = chokidar.watch(VAULT_PATH_BOVEDA, {
-        ignored: /(^|[\/\\])(\..|BotTrading|Boveda|Boveda_AI|vault-template|vault|node_modules)/, // ignora ocultos y carpetas huérfanas
+        ignored: (targetPath) => {
+            const rel = path.relative(VAULT_PATH_BOVEDA, targetPath);
+            if (!rel || rel === '') return false; // nunca ignorar la raíz VAULT_PATH_BOVEDA
+            if (rel.includes('Bitacora_Ordenes_OasisStore')) return true;
+            const parts = rel.split(/[/\\]/);
+            return parts.some(p => p.startsWith('.') || ignoredDirs.has(p));
+        },
         persistent: true,
         ignoreInitial: true,
         awaitWriteFinish: {

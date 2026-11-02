@@ -107,19 +107,65 @@ async function llamarOllama(prompt, modelo, formato = null, images = null) {
  * @returns {Promise<number[]>}
  */
 async function generarEmbedding(texto) {
+    const baseUrl = OLLAMA_URL.replace('/api/generate', '').replace('/api/chat', '');
+    const response = await fetch(`${baseUrl}/api/embed`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ model: OLLAMA_MODEL_EMBED, input: texto })
+    });
+
+    if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data.embeddings) && data.embeddings.length > 0) {
+            return data.embeddings[0];
+        }
+    }
+
+    // Fallback a endpoint clásico /api/embeddings
     const urlEmbed = OLLAMA_URL.replace('/generate', '/embeddings');
-    const response = await fetch(urlEmbed, {
+    const fallbackRes = await fetch(urlEmbed, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ model: OLLAMA_MODEL_EMBED, prompt: texto })
     });
 
-    if (!response.ok) {
-        throw new Error(`Fallo al generar embedding: ${response.status}`);
+    if (!fallbackRes.ok) {
+        throw new Error(`Fallo al generar embedding: ${fallbackRes.status}`);
     }
 
-    const data = await response.json();
-    return data.embedding;
+    const fallbackData = await fallbackRes.json();
+    return fallbackData.embedding;
+}
+
+/**
+ * Genera vectores de embedding en lote (batch) usando /api/embed de Ollama.
+ * @param {string[]} textos
+ * @returns {Promise<number[][]>}
+ */
+async function generarEmbeddingsBatch(textos) {
+    if (!Array.isArray(textos) || textos.length === 0) return [];
+    const baseUrl = OLLAMA_URL.replace('/api/generate', '').replace('/api/chat', '');
+    try {
+        const response = await fetch(`${baseUrl}/api/embed`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ model: OLLAMA_MODEL_EMBED, input: textos })
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data.embeddings) && data.embeddings.length === textos.length) {
+                return data.embeddings;
+            }
+        }
+    } catch {
+        // Fallback uno por uno si el batch falla
+    }
+
+    const resultados = [];
+    for (const t of textos) {
+        resultados.push(await generarEmbedding(t));
+    }
+    return resultados;
 }
 
 /**
@@ -134,4 +180,4 @@ async function obtenerModelos() {
     return (data.models || []).map(m => m.name);
 }
 
-module.exports = { llamarOllama, generarEmbedding, obtenerModelos };
+module.exports = { llamarOllama, generarEmbedding, generarEmbeddingsBatch, obtenerModelos };

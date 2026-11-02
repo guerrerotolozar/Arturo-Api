@@ -9,9 +9,10 @@
 const path = require('path');
 const { leerVaultRecursivo }    = require('../repositories/vaultRepository');
 const { buscarSemanticamente, estaDisponible } = require('../repositories/vectorRepository');
-const { VAULT_PATH }            = require('../config/env');
+const { VAULT_PATH, VAULT_PATH_BOVEDA } = require('../config/env');
 
-const UMBRAL_FUSION = parseFloat(process.env.VAULT_UMBRAL_FUSION || '0.35'); // Ajustado para distancia de embeddings qwen3
+const BASE_VAULT_DIR = VAULT_PATH_BOVEDA || VAULT_PATH;
+const UMBRAL_FUSION = parseFloat(process.env.VAULT_UMBRAL_FUSION || '0.55'); // Similitud coseno (1 - distancia) para qwen3-embedding:8b
 
 /**
  * Búsqueda de contexto — Usa LanceDB (Rápido y Semántico)
@@ -32,7 +33,7 @@ async function buscarContexto(pregunta, maxFragmentos = 5) {
 
     // Mapear al formato antiguo esperado por el agente
     return resultados.map(r => {
-        const score = 1 - r.distancia; // Convertir distancia a similitud
+        const score = 1 - r.distancia; // Convertir distancia coseno a similitud
         return {
             fuente: `${r.metadata.fuente} (${r.metadata.ruta})`,
             texto: r.texto,
@@ -68,7 +69,7 @@ async function buscarCandidatosFusion(texto, maxCandidatos = 3) {
                 candidatos.push({
                     nombre:       r.metadata.fuente,
                     ruta:         r.metadata.ruta,
-                    rutaAbsoluta: path.join(VAULT_PATH, r.metadata.ruta),
+                    rutaAbsoluta: path.join(BASE_VAULT_DIR, r.metadata.ruta),
                     fragmento:    r.texto.substring(0, 500),
                     notaCompleta: notaOriginal.contenido.substring(0, 800), // Para dar contexto a la IA de fusión
                     score:        score

@@ -311,27 +311,48 @@ No agregues texto explicativo fuera del JSON.`;
         // El link interno de Obsidian debe ser [[Media/subcarpeta/archivo.mp4]]
         const relativeVideoPath = videoFilePath.replace(/\\/g, '/').split('/Boveda/')[1] || '';
 
-        // 3.5 Búsqueda Vectorial para Conexiones Cerebrales
+        // 3.5 Búsqueda Vectorial para Conexiones Cerebrales (4096d Cosine)
         let conexionesCerebrales = [];
         try {
             console.log(`[MEDIA_ANALYSIS] Buscando conexiones cerebrales en la bóveda...`);
-            // Usamos el resumen para encontrar conceptos similares
-            const searchQuery = analysis.resumen_ejecutivo || newTitle;
-            const resultadosVectoriales = await vectorRepo.buscarSemanticamente(searchQuery, 10);
+            const searchQuery = `${newTitle}. Categorías: ${(allCategories || []).join(', ')}. ${analysis.resumen_ejecutivo || ''}`.trim();
+            const [resultadosProyectos, resultadosVectoriales] = await Promise.all([
+                vectorRepo.buscarSemanticamente(searchQuery, 10, [], { soloProyectos: true }),
+                vectorRepo.buscarSemanticamente(searchQuery, 20, [], { excluirMedia: true })
+            ]);
             
-            // Filtrar para no enlazarse a sí mismo ni a otros archivos dentro de Media (queremos conocimiento puro)
-            const resultadosCore = resultadosVectoriales.filter(r => 
-                r.metadata && r.metadata.ruta && !r.metadata.ruta.includes('/Media/') && !r.metadata.ruta.includes('\\Media\\')
+            // Filtrar para no enlazarse a sí mismo ni a otros archivos dentro de Media ni bitácoras crudas
+            const resultadosCore = [...resultadosProyectos, ...resultadosVectoriales].filter(r => 
+                r.metadata &&
+                r.metadata.ruta &&
+                !r.metadata.ruta.includes('/Media/') &&
+                !r.metadata.ruta.includes('\\Media\\') &&
+                !r.metadata.ruta.includes('Bitacora_Ordenes_') &&
+                (r.distancia === undefined || r.distancia < 0.48)
             );
             
-            // Extraer nombres de archivo (títulos de notas) únicos y tomar los top 3-5
-            const titulosUnicos = new Set();
+            // Deduplicar por nombre de nota conservando la menor distancia coseno
+            const mejorPorNota = new Map();
             for (const r of resultadosCore) {
                 const nombreNota = path.basename(r.metadata.ruta, '.md');
-                titulosUnicos.add(nombreNota);
-                if (titulosUnicos.size >= 4) break; // Máximo 4 conexiones para no saturar
+                const prev = mejorPorNota.get(nombreNota);
+                if (!prev || r.distancia < prev.distancia) {
+                    mejorPorNota.set(nombreNota, {
+                        nombreNota,
+                        ruta: r.metadata.ruta.replace(/\\/g, '/'),
+                        distancia: r.distancia
+                    });
+                }
             }
-            conexionesCerebrales = Array.from(titulosUnicos);
+
+            const ordenados = Array.from(mejorPorNota.values()).sort((a, b) => a.distancia - b.distancia);
+            const proyectosHits = ordenados.filter(x => x.ruta.includes('OPERACIONES/Proyectos/') || x.ruta.includes('OPERACIONES/Finanzas/')).slice(0, 2);
+            const otrosHits = ordenados.filter(x => !proyectosHits.some(p => p.nombreNota === x.nombreNota)).slice(0, 3);
+
+            conexionesCerebrales = [...proyectosHits, ...otrosHits].map(x => x.nombreNota);
+            if (conexionesCerebrales.length > 0) {
+                console.log(`[MEDIA_ANALYSIS] 🔗 Conexiones detectadas: [${conexionesCerebrales.join(', ')}]`);
+            }
         } catch (errVector) {
             console.warn('[MEDIA_ANALYSIS] Error buscando conexiones vectoriales:', errVector.message);
         }
@@ -404,6 +425,8 @@ function construirMarkdown({ titulo, originalTitle, uploader, webpageUrl, relati
     
     let md = `---
 tipo: media_resumen
+estado: activo
+curado_vigilante: false
 creado: ${timestamp}
 fuente_original: "${uploader}"
 url_origen: "${webpageUrl}"

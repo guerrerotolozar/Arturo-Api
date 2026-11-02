@@ -10,7 +10,7 @@
  */
 
 const path = require('path');
-const { generarEmbedding } = require('../adapters/ollamaAdapter');
+const { generarEmbedding, generarEmbeddingsBatch } = require('../adapters/ollamaAdapter');
 
 const TABLE_NAME = 'arturo_boveda';
 const DB_PATH = path.join(__dirname, '../../lancedb_data');
@@ -18,6 +18,7 @@ const DB_PATH = path.join(__dirname, '../../lancedb_data');
 // Conexión y tabla — se inicializan lazy
 let db = null;
 let table = null;
+let autoSyncPromise = null;
 
 /**
  * Inicializa la conexión a LanceDB y obtiene (o crea) la tabla principal.
@@ -79,16 +80,19 @@ async function upsertDocumentos(chunks) {
         db = await lancedb.connect(DB_PATH);
     }
 
-    // Generar embeddings y construir registros para LanceDB
+    // Generar embeddings en batch y construir registros para LanceDB
     const registros = [];
     const BATCH_SIZE = 20;
 
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
         const batch = chunks.slice(i, i + BATCH_SIZE);
+        const textosBatch = batch.map(c => c.texto);
 
-        for (const chunk of batch) {
-            try {
-                const vector = await generarEmbedding(chunk.texto);
+        try {
+            const vectores = await generarEmbeddingsBatch(textosBatch);
+            for (let j = 0; j < batch.length; j++) {
+                const chunk = batch[j];
+                const vector = vectores[j];
                 if (vector && vector.length > 0) {
                     registros.push({
                         id: chunk.id,
@@ -101,9 +105,9 @@ async function upsertDocumentos(chunks) {
                         sincronizado: chunk.metadata?.sincronizado || new Date().toISOString()
                     });
                 }
-            } catch (err) {
-                console.error(`[VECTOR-DB] Error generando embedding para "${chunk.id}": ${err.message}`);
             }
+        } catch (err) {
+            console.error(`[VECTOR-DB] Error generando batch de embeddings (${i}-${i + batch.length}): ${err.message}`);
         }
 
         // Progreso
@@ -149,38 +153,96 @@ async function upsertDocumentos(chunks) {
 }
 
 /**
- * Búsqueda semántica en la tabla.
+ * Dispara una sincronización completa de rescate cuando la tabla no existe o cambió de dimensión.
+ */
+async function _autoReconstruirIndice(razon) {
+    if (!autoSyncPromise) {
+        console.log(`[VECTOR-DB] 🔄 Auto-reconstruyendo índice vectorial (${razon})...`);
+        const { sincronizarBoveda } = require('../use-cases/vaultIndexer');
+        autoSyncPromise = sincronizarBoveda({ forzarReset: true })
+            .catch(err => console.error(`[VECTOR-DB] Error en auto-reconstrucción: ${err.message}`))
+            .finally(() => { autoSyncPromise = null; });
+    }
+    await autoSyncPromise;
+    table = null;
+    await inicializar();
+}
+
+/**
+ * Búsqueda semántica en la tabla (Distancia Coseno, auto-reparable).
  *
  * @param {string} query - Texto de búsqueda
  * @param {number} topK  - Número máximo de resultados
  * @param {Array<string>} tagsFiltro - Tags opcionales para filtrar (ej: ['#finanzas'])
+ * @param {object} opciones - Filtros estructurales pre-búsqueda ({ excluirMedia, soloProyectos })
  * @returns {Promise<Array<{id: string, texto: string, metadata: object, distancia: number}>>}
  */
-async function buscarSemanticamente(query, topK = 5, tagsFiltro = []) {
+async function buscarSemanticamente(query, topK = 5, tagsFiltro = [], opciones = {}) {
     if (!(await estaDisponible())) {
         await inicializar();
     }
 
     if (!table) {
-        console.warn('[VECTOR-DB] No hay tabla para buscar. Sincroniza primero.');
+        await _autoReconstruirIndice('tabla inexistente');
+    }
+
+    if (!table) {
+        console.warn('[VECTOR-DB] No hay tabla para buscar tras intento de sincronización.');
         return [];
     }
 
-    // Generar embedding de la consulta
+    // Generar embedding de la consulta (4096d con qwen3-embedding:8b)
     const queryEmbedding = await generarEmbedding(query);
 
-    let busqueda = table.vectorSearch(queryEmbedding);
-
-    if (tagsFiltro && tagsFiltro.length > 0) {
-        // LanceDB SQL-like where condition
-        const condiciones = tagsFiltro.map(t => `tags LIKE '%${t}%'`).join(' OR ');
-        busqueda = busqueda.where(condiciones);
-        console.log(`[VECTOR-DB] Pre-filtro activado: ${condiciones}`);
+    // Verificar compatibilidad de dimensión antes de ejecutar query
+    try {
+        const sample = await table.query().limit(1).toArray();
+        if (sample && sample.length > 0 && sample[0].vector && sample[0].vector.length !== queryEmbedding.length) {
+            await _autoReconstruirIndice(`dimensión ${sample[0].vector.length} != ${queryEmbedding.length}`);
+        }
+    } catch {
+        // Si falla la inspección previa, continuamos y capturamos en el vectorSearch
     }
 
-    const resultados = await busqueda
-        .limit(topK)
-        .toArray();
+    if (!table) return [];
+
+    const clausulasWhere = [];
+    if (tagsFiltro && tagsFiltro.length > 0) {
+        const condTags = tagsFiltro.map(t => `tags LIKE '%${t}%'`).join(' OR ');
+        clausulasWhere.push(`(${condTags})`);
+    }
+    if (opciones && opciones.excluirMedia) {
+        clausulasWhere.push(`(carpeta != 'Media' AND ruta NOT LIKE 'Media/%' AND ruta NOT LIKE '%/Media/%')`);
+    }
+    if (opciones && opciones.soloProyectos) {
+        clausulasWhere.push(`(ruta LIKE 'OPERACIONES/Proyectos/%' OR ruta LIKE 'OPERACIONES/Finanzas/%')`);
+    }
+
+    const whereFinal = clausulasWhere.length > 0 ? clausulasWhere.join(' AND ') : null;
+
+    let resultados;
+    try {
+        let busqueda = table.vectorSearch(queryEmbedding).distanceType('cosine');
+
+        if (whereFinal) {
+            busqueda = busqueda.where(whereFinal);
+            console.log(`[VECTOR-DB] Pre-filtro activado: ${whereFinal}`);
+        }
+
+        resultados = await busqueda
+            .limit(topK)
+            .toArray();
+    } catch (err) {
+        if (String(err.message || '').includes('dimension')) {
+            await _autoReconstruirIndice(`error de dimensión en query: ${err.message}`);
+            if (!table) return [];
+            let reintento = table.vectorSearch(queryEmbedding).distanceType('cosine');
+            if (whereFinal) reintento = reintento.where(whereFinal);
+            resultados = await reintento.limit(topK).toArray();
+        } else {
+            throw err;
+        }
+    }
 
     // Mapear al formato estándar
     return resultados.map(r => ({
@@ -193,7 +255,7 @@ async function buscarSemanticamente(query, topK = 5, tagsFiltro = []) {
             tags: r.tags || '',
             sincronizado: r.sincronizado
         },
-        distancia: r._distance || 0
+        distancia: r._distance !== undefined ? r._distance : 0
     }));
 }
 

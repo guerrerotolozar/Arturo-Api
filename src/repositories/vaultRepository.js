@@ -7,7 +7,8 @@
 
 const fs   = require('fs');
 const path = require('path');
-const { VAULT_PATH, PERFIL_RONALD } = require('../config/env');
+const { VAULT_PATH, VAULT_PATH_BOVEDA, PERFIL_RONALD } = require('../config/env');
+const BASE_VAULT_DIR = VAULT_PATH_BOVEDA || VAULT_PATH;
 
 function asegurarDirectorio(dirPath) {
     if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -33,19 +34,20 @@ function leerNucleoArturo() {
  */
 const IGNORED_VAULT_DIRS = new Set(['node_modules', 'BotTrading', 'Boveda', 'Boveda_AI', 'vault-template', 'vault', 'lancedb_data', 'src', 'docs']);
 
-function leerVaultRecursivo(dir = VAULT_PATH) {
+function leerVaultRecursivo(dir = BASE_VAULT_DIR, baseRoot = BASE_VAULT_DIR) {
     const resultados = [];
     try {
         for (const entrada of fs.readdirSync(dir, { withFileTypes: true })) {
             const ruta = path.join(dir, entrada.name);
             if (entrada.isDirectory()) {
                 if (entrada.name.startsWith('.') || IGNORED_VAULT_DIRS.has(entrada.name)) continue;
-                resultados.push(...leerVaultRecursivo(ruta));
+                resultados.push(...leerVaultRecursivo(ruta, baseRoot));
             } else if (entrada.name.endsWith('.md')) {
+                if (entrada.name.includes('Bitacora_Ordenes_OasisStore')) continue;
                 try {
                     const stats = fs.statSync(ruta);
                     resultados.push({
-                        ruta:     ruta.replace(VAULT_PATH, '').replace(/^[/\\]+/, ''),
+                        ruta:     path.relative(baseRoot, ruta).replace(/\\/g, '/'),
                         nombre:   path.basename(ruta, '.md'),
                         contenido: fs.readFileSync(ruta, 'utf-8'),
                         mtimeMs:  stats.mtimeMs

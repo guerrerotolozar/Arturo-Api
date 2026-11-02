@@ -32,7 +32,7 @@ const OLLAMA_MODEL_EMBED = process.env.OLLAMA_MODEL_EMBED
  * Modelo usado exclusivamente para generar embeddings (vectores).
  * No se usa para texto ni generación — su rol es solo convertir texto → vector.
  */
-const EMBED_MODEL = (process.env.SEMANTIC_BRIDGE_EMBED_MODEL || process.env.OLLAMA_MODEL_EMBED || '').trim() || 'qwen3-embedding:0.6b'
+const EMBED_MODEL = (process.env.SEMANTIC_BRIDGE_EMBED_MODEL || process.env.OLLAMA_MODEL_EMBED || '').trim() || 'qwen3-embedding:8b'
 
 // Modelo usado por el Semantic Bridge para generar NOTIFICACIONES.
 // Debe ser un modelo LLM con razonamiento semántico, no solo embedding.

@@ -72,8 +72,11 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
 
     const tagsMetadata = extraerTagsYAML(contenido);
 
+    // Excluir zonas de máquina (auto:begin/end) para evitar bucles e indexado de metadatos operativos
+    const contenidoLimpio = String(contenido || '').replace(/<!-- auto:begin -->[\s\S]*?<!-- auto:end -->/g, '');
+
     // Paso 1: Dividir por encabezados markdown (##, ###, ####)
-    const secciones = contenido.split(/(?=^#{2,4}\s)/m);
+    const secciones = contenidoLimpio.split(/(?=^#{2,4}\s)/m);
 
     for (const seccion of secciones) {
         const limpio = seccion.trim();

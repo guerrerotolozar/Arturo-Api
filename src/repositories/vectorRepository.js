@@ -116,14 +116,31 @@ async function upsertDocumentos(chunks) {
         return;
     }
 
-    // Verificar si la tabla existe
+    // Verificar si la tabla existe y si su dimensión coincide con el vector actual (ej. 1024 -> 4096 con qwen3-embedding:8b)
     const tablas = await db.tableNames();
+    const expectedDim = registros[0].vector.length;
 
     if (tablas.includes(TABLE_NAME)) {
-        // Tabla existe → agregar datos
         table = await db.openTable(TABLE_NAME);
-        await table.add(registros);
-        console.log(`[VECTOR-DB] ${registros.length} registros agregados a tabla existente.`);
+        let incompatible = false;
+        try {
+            const sample = await table.query().limit(1).toArray();
+            if (sample && sample.length > 0 && sample[0].vector && sample[0].vector.length !== expectedDim) {
+                incompatible = true;
+                console.log(`[VECTOR-DB] Cambio de dimensión detectado (${sample[0].vector.length} -> ${expectedDim}). Recreando "${TABLE_NAME}"...`);
+            }
+        } catch {
+            incompatible = true;
+        }
+
+        if (incompatible) {
+            await db.dropTable(TABLE_NAME);
+            table = await db.createTable(TABLE_NAME, registros);
+            console.log(`[VECTOR-DB] Tabla "${TABLE_NAME}" recreada con dimensión ${expectedDim} (${registros.length} registros).`);
+        } else {
+            await table.add(registros);
+            console.log(`[VECTOR-DB] ${registros.length} registros agregados a tabla existente.`);
+        }
     } else {
         // Tabla no existe → crearla con los datos
         table = await db.createTable(TABLE_NAME, registros);

@@ -67,6 +67,11 @@ setInterval(() => {
  */
 function rateLimiter(req, res, next) {
     try {
+        // Eximir endpoint de healthcheck / status para no degradar el contenedor en Docker
+        if (req.path === '/status') {
+            return next();
+        }
+
         // Verificar si la IP está bloqueada
         const ip = req.ip;
         if (isIpBlocked(ip)) {
@@ -83,24 +88,22 @@ function rateLimiter(req, res, next) {
         // Identificador único por petición
         const requestId = req.headers['x-arturo-key'] || ip;
 
-        // Limpiar contador si expiró la ventana
+        // Limpiar contador si expiró la ventana o inicializar
         const now = Date.now();
-        if (counters.has(requestId)) {
-            const data = counters.get(requestId);
-            if (now - data.windowStart > limitConfig.windowMs) {
-                counters.delete(requestId);
-                data.count = 0;
-                data.windowStart = now;
-            }
+        let data = counters.get(requestId);
+        if (data && (now - data.windowStart > limitConfig.windowMs)) {
+            counters.delete(requestId);
+            data = null;
         }
 
-        // Incrementar y verificar
-        counters.set(requestId, {
-            count: (counters.get(requestId)?.count || 0) + 1,
-            windowStart: now
-        });
+        if (!data) {
+            data = { count: 1, windowStart: now };
+            counters.set(requestId, data);
+        } else {
+            data.count += 1;
+        }
 
-        const currentCount = counters.get(requestId).count;
+        const currentCount = data.count;
 
         if (currentCount > limitConfig.max) {
             const resetTime = Math.ceil((limitConfig.windowMs - (now % limitConfig.windowMs)) / 1000);

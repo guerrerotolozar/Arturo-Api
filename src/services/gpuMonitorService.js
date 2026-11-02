@@ -52,6 +52,9 @@ function getGpuStats() {
     } catch (e) {
         // En desarrollo, Docker sin nvidia-smi, o sin NVIDIA: asumimos libre
         console.warn('[GPU_MONITOR] nvidia-smi no disponible. Asumiendo GPU libre.');
+        cachedStats = { vramUsedMB: 0, gpuUtilPercent: 0 };
+        lastCheckTime = now;
+        return cachedStats;
     }
 
     return { vramUsedMB: 0, gpuUtilPercent: 0 };

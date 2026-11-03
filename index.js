@@ -23,6 +23,7 @@ const downloadDirecto = require('./src/controllers/download');
 const { listarChatsController, eliminarChatController, obtenerMensajesController } = require('./src/controllers/chats');
 const { syncVectoresController, estadoVectoresController, getRagContextController } = require('./src/controllers/vectores');
 const { enviarNotificacion, streamNotificaciones } = require('./src/controllers/notificaciones');
+const { registrarEventoController, listarEventosController, statsBitacoraController } = require('./src/controllers/bitacora');
 const { listarMediaController, listarCategoriasController, contarPendientesController, obtenerMediaController, servirThumbController, servirArchivoController, categorizarController, eliminarMediaController, syncMediaController } = require('./src/controllers/media');
 const timeUtils = require('./src/utils/timeUtils');
 
@@ -144,6 +145,11 @@ app.get('/api/vectores/estado', estadoVectoresController);  // Estado de LanceDB
 // 5. Notificaciones Push (Bot Trading → App Android)
 app.post('/api/notifications', enviarNotificacion);                  // Encolar notificación
 app.get('/api/notifications/stream', streamNotificaciones);   // SSE en tiempo real (push instantáneo)
+
+// 5.5 Bitácora Operativa Estructurada (Base de datos SQLite/JSON - Zero sobrecarga a la Bóveda/LanceDB)
+app.post('/api/bitacora', registrarEventoController);
+app.get('/api/bitacora', listarEventosController);
+app.get('/api/bitacora/stats', statsBitacoraController);
 
 // 6. Media Intelligence (Videos descargados + Categorización)
 app.get('/api/media', listarMediaController);       // Lista media (filtrable)

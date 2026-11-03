@@ -13,8 +13,7 @@ async function crearNotaHandler(req, res) {
     try {
         const boveda = process.env.VAULT_PATH_BOVEDA || '/home/ronald/ARTURO/Cerebro/Boveda';
         const resolvedBase = path.resolve(boveda);
-        const carpetaNormalizada = carpeta === 'OPERACIONES/OasisStore' ? 'OPERACIONES/Proyectos/OasisStore' : carpeta;
-        const rutaCarpeta = path.resolve(boveda, carpetaNormalizada);
+        const rutaCarpeta = path.resolve(boveda, carpeta);
 
         // Prevenir Path Traversal: asegurar que rutaCarpeta permanezca estrictamente dentro del Vault
         if (!rutaCarpeta.startsWith(resolvedBase + path.sep) && rutaCarpeta !== resolvedBase) {

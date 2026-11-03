@@ -184,74 +184,22 @@ ${objetivo.content.substring(0, 8000)}
         const resumenOriginal = matchResumenOrig ? matchResumenOrig[1].trim() : '';
         const queryEnriquecida = `${tituloBruto}. ${resumenCorto}. ${resumenOriginal}`.trim();
 
+        const catalogoProyectos = _descubrirProyectosBoveda();
+        const mediaNombreSinExt = path.basename(objetivo.mdFile, '.md');
+        const wikilinkMedia = `[[Media/${objetivo.timestampName}/${mediaNombreSinExt}]]`;
+        const fechaHoy = new Date().toISOString().slice(0, 10);
+
         // ================================================================
-        // ANTI-DUPLICADOS: Consultar LanceDB (Cosine 4096d) antes de crear
+        // 1. BÚSQUEDA VECTORIAL UNIFICADA (Oportunidades + Anti-Duplicados)
         // ================================================================
-        let fusionado = false;
+        let topProyectos = [];
+        let topConocimiento = [];
+        let candidatoFusion = null;
+
         try {
             const disponible = await estaDisponible();
             if (disponible) {
                 await inicializar();
-                const similares = await buscarSemanticamente(queryEnriquecida, 8, [], { excluirMedia: true });
-
-                // Filtrar solo notas conceptuales previas (no Media ni Proyectos)
-                const candidatos = similares.filter(r =>
-                    r.metadata && r.metadata.ruta &&
-                    !r.metadata.ruta.includes('/Media/') && !r.metadata.ruta.includes('\\Media\\') &&
-                    r.metadata.ruta.includes('Conceptos') &&
-                    path.basename(r.metadata.ruta, '.md') !== safeTitle
-                );
-
-                if (candidatos.length > 0 && candidatos[0].distancia < 0.22) {
-                    const rutaExistente = path.join(VAULT_PATH_BOVEDA, candidatos[0].metadata.ruta);
-
-                    if (fs.existsSync(rutaExistente)) {
-                        const nombreExistente = path.basename(rutaExistente, '.md');
-                        console.log(`[VIGILANTE] 🔄 Concepto similar detectado (distancia coseno: ${candidatos[0].distancia.toFixed(3)}): "${nombreExistente}"`);
-                        console.log(`[VIGILANTE] 🔄 Fusionando conocimiento nuevo en la nota existente en vez de crear duplicado.`);
-
-                        const contenidoExistente = fs.readFileSync(rutaExistente, 'utf8');
-                        const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-                        const bloqueFusion = `\n\n---\n\n## 📎 Ampliación (${timestamp})\n*Conocimiento complementario fusionado desde: [[Media/${objetivo.timestampName}/${objetivo.mdFile}]]*\n\n${contenidoBruto}\n`;
-
-                        fs.writeFileSync(rutaExistente, contenidoExistente + bloqueFusion, 'utf8');
-                        console.log(`[VIGILANTE] ✔️  Conocimiento fusionado en: ${nombreExistente}.md`);
-
-                        _inyectarEnlaceEnHuerfano(objetivo, [nombreExistente]);
-                        fusionado = true;
-                    }
-                }
-            }
-        } catch (errVector) {
-            console.warn(`[VIGILANTE] ⚠️  Error en anti-duplicados (continuando con creación normal): ${errVector.message}`);
-        }
-
-        if (fusionado) {
-            console.log(`[VIGILANTE] Curaduría completada (fusión). Quedan ${huerfanos.length - 1} en cola.`);
-            return;
-        }
-
-        // ================================================================
-        // CREACIÓN DE NOTA NUEVA + DETECCIÓN DINÁMICA DE OPORTUNIDADES
-        // ================================================================
-        const targetDir = path.join(VAULT_PATH_BOVEDA, rutaRelativa);
-
-        if (!fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-            console.log(`[VIGILANTE] Nueva subcarpeta creada: ${rutaRelativa}`);
-        }
-
-        const newNotePath = path.join(targetDir, `${safeTitle}.md`);
-        const catalogoProyectos = _descubrirProyectosBoveda();
-
-        let seccionOportunidades = '';
-        const enlacesParaMedia = [safeTitle];
-        const enlacesRelacionadosFrontmatter = [`[[Media/${objetivo.timestampName}/${path.basename(objetivo.mdFile, '.md')}]]`];
-        const proyectosImpactados = [];
-
-        try {
-            const disponible = await estaDisponible();
-            if (disponible) {
                 const [conexionesProyectos, conexionesGenerales] = await Promise.all([
                     buscarSemanticamente(queryEnriquecida, 20, [], { soloProyectos: true }),
                     buscarSemanticamente(queryEnriquecida, 20, [], { excluirMedia: true })
@@ -265,7 +213,6 @@ ${objetivo.content.substring(0, 8000)}
                     const rutaNorm = r.metadata.ruta.replace(/\\/g, '/');
                     if (rutaNorm.includes('/Media/') || rutaNorm.startsWith('Media/')) continue;
                     if (rutaNorm.includes('Bitacora_Ordenes_')) continue;
-                    if (path.basename(rutaNorm, '.md') === safeTitle) continue;
 
                     const prev = mejorPorRuta.get(rutaNorm);
                     if (!prev || r.distancia < prev.distancia) {
@@ -273,89 +220,192 @@ ${objetivo.content.substring(0, 8000)}
                     }
                 }
 
-                // Evaluar coincidencias contra el catálogo dinámico de proyectos (distancia coseno < 0.48)
                 const hitsProyectos = [];
-                const hitsConocimiento = [];
+                const hitsConceptos = [];
+                const hitsOtros = [];
 
                 for (const [rutaNorm, hit] of mejorPorRuta.entries()) {
                     const infoProy = catalogoProyectos.get(rutaNorm);
                     if (infoProy && hit.distancia < 0.48) {
-                        // Priorizar proyectos activos/en producción sobre pausados
                         const bonusActivo = (infoProy.estado === 'produccion' || infoProy.estado === 'activo') ? -0.03 : 0;
                         hitsProyectos.push({
                             ...infoProy,
                             distancia: hit.distancia,
                             scoreOrden: hit.distancia + bonusActivo
                         });
-                    } else if (!infoProy && hit.distancia < 0.43) {
-                        hitsConocimiento.push({
+                    } else if (!infoProy) {
+                        const item = {
                             nombreNota: path.basename(rutaNorm, '.md'),
                             rutaNorm,
                             distancia: hit.distancia
-                        });
+                        };
+                        if (rutaNorm.includes('OPERACIONES/Conceptos/')) {
+                            hitsConceptos.push(item);
+                        } else if (hit.distancia < 0.43) {
+                            hitsOtros.push(item);
+                        }
                     }
                 }
 
                 hitsProyectos.sort((a, b) => a.scoreOrden - b.scoreOrden);
-                hitsConocimiento.sort((a, b) => a.distancia - b.distancia);
+                hitsConceptos.sort((a, b) => a.distancia - b.distancia);
+                hitsOtros.sort((a, b) => a.distancia - b.distancia);
 
-                const topProyectos = hitsProyectos.slice(0, 3);
-                const topConocimiento = hitsConocimiento.slice(0, 3);
+                topProyectos = hitsProyectos.slice(0, 3);
 
-                if (topProyectos.length > 0 || topConocimiento.length > 0) {
-                    const nombresProyLog = topProyectos.map(p => `${p.nombreNota} (${Math.round((1 - p.distancia) * 100)}%, ${p.estado})`);
-                    if (nombresProyLog.length > 0) {
-                        console.log(`[VIGILANTE] 💡 Oportunidad detectada en proyecto(s): [${nombresProyLog.join(', ')}]`);
-                    }
-
-                    seccionOportunidades = `\n\n---\n\n## 💡 Oportunidades de Aplicación\n`;
-                    if (topProyectos.length > 0) {
-                        seccionOportunidades += `Este concepto tiene conexión directa con los siguientes proyectos del ecosistema:\n`;
-                        for (const proy of topProyectos) {
-                            const etiquetaEstado = (proy.estado === 'pausado' || proy.estado === 'archivado')
-                                ? ` *(referencia técnica / ${proy.estado})*`
-                                : ` *(${proy.estado})*`;
-                            const similitudPct = Math.round((1 - proy.distancia) * 100);
-                            seccionOportunidades += `- **[[${proy.nombreNota}]]**${etiquetaEstado} — afinidad semántica ${similitudPct}%: ${proy.resumen || 'Aplicación directa en arquitectura o interfaz.'}\n`;
-
-                            if (!enlacesParaMedia.includes(proy.nombreNota)) {
-                                enlacesParaMedia.push(proy.nombreNota);
-                            }
-                            const wikilink = `[[${proy.nombreNota}]]`;
-                            if (!enlacesRelacionadosFrontmatter.includes(wikilink)) {
-                                enlacesRelacionadosFrontmatter.push(wikilink);
-                            }
-                            proyectosImpactados.push(proy);
-                        }
-                    }
-
-                    if (topConocimiento.length > 0) {
-                        seccionOportunidades += `\nNotas conceptuales y herramientas relacionadas:\n`;
-                        for (const n of topConocimiento) {
-                            seccionOportunidades += `- [[${n.nombreNota}]]\n`;
-                            const wikilink = `[[${n.nombreNota}]]`;
-                            if (!enlacesRelacionadosFrontmatter.includes(wikilink)) {
-                                enlacesRelacionadosFrontmatter.push(wikilink);
-                            }
-                        }
-                    }
-
-                    seccionOportunidades += `\n> *Oportunidad detectada dinámicamente por El Vigilante (qwen3-embedding:8b).* \n`;
+                // Umbral de Fusión Tangible (Staged Ingestion): distancia coseno < 0.38 (similitud > 62%)
+                if (hitsConceptos.length > 0 && hitsConceptos[0].distancia < 0.38) {
+                    candidatoFusion = hitsConceptos[0];
+                    topConocimiento = [...hitsConceptos.slice(1).filter(c => c.distancia < 0.43), ...hitsOtros].slice(0, 3);
+                } else {
+                    topConocimiento = [...hitsConceptos.filter(c => c.distancia < 0.43), ...hitsOtros].slice(0, 3);
                 }
             }
-        } catch (errOpp) {
-            console.warn(`[VIGILANTE] ⚠️  Error buscando oportunidades: ${errOpp.message}`);
+        } catch (errVector) {
+            console.warn(`[VIGILANTE] ⚠️  Error en análisis vectorial: ${errVector.message}`);
         }
 
-        const fechaHoy = new Date().toISOString().slice(0, 10);
-        const mediaNombreSinExt = path.basename(objetivo.mdFile, '.md');
+        // ================================================================
+        // 2. FUSIÓN TANGIBLE EN DOS FASES (Si ya existe concepto hermano)
+        // ================================================================
+        if (candidatoFusion) {
+            const rutaExistente = path.join(VAULT_PATH_BOVEDA, candidatoFusion.rutaNorm);
+            if (fs.existsSync(rutaExistente)) {
+                const nombreExistente = candidatoFusion.nombreNota;
+                const simPct = Math.round((1 - candidatoFusion.distancia) * 100);
+                console.log(`[VIGILANTE] 🔄 Concepto hermano detectado (${simPct}% similitud, dist: ${candidatoFusion.distancia.toFixed(3)}): "${nombreExistente}"`);
+                console.log(`[VIGILANTE] 📎 Inyectando sección de Ampliación Tangible en "${nombreExistente}.md" (cero duplicación de archivo).`);
+
+                let contenidoExistente = fs.readFileSync(rutaExistente, 'utf8');
+
+                // Limpiar título H1 redundante y bajar un nivel los encabezados internos para anidar limpio bajo ## 📎 Ampliación
+                const cuerpoLimpio = String(contenidoBruto || '')
+                    .replace(/^#\s+.*\r?\n+/, '')
+                    .replace(/^(#{2,5})\s+/gm, '#$1 ')
+                    .trim();
+
+                const proysAplicablesStr = topProyectos.length > 0
+                    ? `\n- **Proyectos Aplicables:** ${topProyectos.map(p => `[[${p.nombreNota}]] *(${p.estado})*`).join(', ')}`
+                    : '';
+
+                const bloqueAmpliacion = `\n\n---\n\n## 📎 Ampliación (${fechaHoy}): ${tituloBruto}\n- **Origen:** ${wikilinkMedia}\n- **Síntesis:** ${resumenCorto}${proysAplicablesStr}\n\n${cuerpoLimpio}\n`;
+
+                // Insertar antes de ## 💡 Oportunidades de Aplicación o antes de <!-- auto:begin -->
+                if (contenidoExistente.includes('## 💡 Oportunidades de Aplicación')) {
+                    contenidoExistente = contenidoExistente.replace(
+                        /(\r?\n---\r?\n+\s*## 💡 Oportunidades de Aplicación|\r?\n## 💡 Oportunidades de Aplicación)/,
+                        `${bloqueAmpliacion}$1`
+                    );
+                } else if (contenidoExistente.includes('<!-- auto:begin -->')) {
+                    contenidoExistente = contenidoExistente.replace(
+                        /(\r?\n*<!-- auto:begin -->)/,
+                        `${bloqueAmpliacion}\n\n$1`
+                    );
+                } else {
+                    contenidoExistente = contenidoExistente.trimEnd() + bloqueAmpliacion + '\n';
+                }
+
+                // Actualizar fecha en frontmatter
+                contenidoExistente = contenidoExistente.replace(/^actualizado:\s*.*$/m, `actualizado: ${fechaHoy}`);
+
+                // Añadir nuevos proyectos detectados a la sección de Oportunidades si no estaban
+                for (const proy of topProyectos) {
+                    if (!contenidoExistente.includes(`[[${proy.nombreNota}]]`) && contenidoExistente.includes('## 💡 Oportunidades de Aplicación')) {
+                        const etiquetaEstado = (proy.estado === 'pausado' || proy.estado === 'archivado')
+                            ? ` *(referencia técnica / ${proy.estado})*`
+                            : ` *(${proy.estado})*`;
+                        const similitudProy = Math.round((1 - proy.distancia) * 100);
+                        const lineaProy = `- **[[${proy.nombreNota}]]**${etiquetaEstado} — afinidad semántica ${similitudProy}%: ${proy.resumen || 'Aplicación directa en arquitectura o interfaz.'}`;
+                        contenidoExistente = contenidoExistente.replace(
+                            /(## 💡 Oportunidades de Aplicación\r?\n(?:Este concepto tiene conexión directa con los siguientes proyectos del ecosistema:\r?\n)?)/,
+                            `$1${lineaProy}\n`
+                        );
+                    }
+                }
+
+                fs.writeFileSync(rutaExistente, contenidoExistente, 'utf8');
+                console.log(`[VIGILANTE] ✔️  Ampliación tangible guardada en: ${nombreExistente}.md`);
+
+                const enlacesParaMedia = [nombreExistente, ...topProyectos.map(p => p.nombreNota)];
+                _inyectarEnlaceEnHuerfano(objetivo, enlacesParaMedia);
+
+                for (const proy of topProyectos) {
+                    if (proy.estado === 'activo' || proy.estado === 'produccion') {
+                        _inyectarOportunidadEnProyecto(proy, nombreExistente, mediaNombreSinExt, resumenCorto);
+                    }
+                }
+
+                // Disparar Semantic Bridge UNA SOLA VEZ sobre el concepto ampliado
+                const { enqueue } = require('./gpuQueueService');
+                enqueue('semantic_bridge', 3, { notasAnalizadas: [candidatoFusion.rutaNorm] });
+                console.log(`[VIGILANTE] 🌉 Semantic Bridge encolado (1 sola vez) para evaluar impacto de "${nombreExistente}".`);
+                console.log(`[VIGILANTE] Curaduría completada (ampliación tangible). Quedan ${huerfanos.length - 1} en cola.`);
+                return;
+            }
+        }
+
+        // ================================================================
+        // 3. CREACIÓN DE NOTA CONCEPTUAL NUEVA (Si es un dominio nuevo)
+        // ================================================================
+        const targetDir = path.join(VAULT_PATH_BOVEDA, rutaRelativa);
+
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+            console.log(`[VIGILANTE] Nueva subcarpeta creada: ${rutaRelativa}`);
+        }
+
+        const newNotePath = path.join(targetDir, `${safeTitle}.md`);
+        let seccionOportunidades = '';
+        const enlacesParaMedia = [safeTitle];
+        const enlacesRelacionadosFrontmatter = [wikilinkMedia];
+
+        if (topProyectos.length > 0 || topConocimiento.length > 0) {
+            const nombresProyLog = topProyectos.map(p => `${p.nombreNota} (${Math.round((1 - p.distancia) * 100)}%, ${p.estado})`);
+            if (nombresProyLog.length > 0) {
+                console.log(`[VIGILANTE] 💡 Oportunidad detectada en proyecto(s): [${nombresProyLog.join(', ')}]`);
+            }
+
+            seccionOportunidades = `\n\n---\n\n## 💡 Oportunidades de Aplicación\n`;
+            if (topProyectos.length > 0) {
+                seccionOportunidades += `Este concepto tiene conexión directa con los siguientes proyectos del ecosistema:\n`;
+                for (const proy of topProyectos) {
+                    const etiquetaEstado = (proy.estado === 'pausado' || proy.estado === 'archivado')
+                        ? ` *(referencia técnica / ${proy.estado})*`
+                        : ` *(${proy.estado})*`;
+                    const similitudPct = Math.round((1 - proy.distancia) * 100);
+                    seccionOportunidades += `- **[[${proy.nombreNota}]]**${etiquetaEstado} — afinidad semántica ${similitudPct}%: ${proy.resumen || 'Aplicación directa en arquitectura o interfaz.'}\n`;
+
+                    if (!enlacesParaMedia.includes(proy.nombreNota)) {
+                        enlacesParaMedia.push(proy.nombreNota);
+                    }
+                    const wikilink = `[[${proy.nombreNota}]]`;
+                    if (!enlacesRelacionadosFrontmatter.includes(wikilink)) {
+                        enlacesRelacionadosFrontmatter.push(wikilink);
+                    }
+                }
+            }
+
+            if (topConocimiento.length > 0) {
+                seccionOportunidades += `\nNotas conceptuales y herramientas relacionadas:\n`;
+                for (const n of topConocimiento) {
+                    seccionOportunidades += `- [[${n.nombreNota}]]\n`;
+                    const wikilink = `[[${n.nombreNota}]]`;
+                    if (!enlacesRelacionadosFrontmatter.includes(wikilink)) {
+                        enlacesRelacionadosFrontmatter.push(wikilink);
+                    }
+                }
+            }
+
+            seccionOportunidades += `\n> *Oportunidad detectada dinámicamente por El Vigilante (qwen3-embedding:8b).* \n`;
+        }
+
         const finalNoteContent = `---
 id: concepto.${slugId}
 tipo: concepto
 resumen: "${resumenCorto.replace(/"/g, "'")}"
 estado: activo
 actualizado: ${fechaHoy}
-origen: "[[Media/${objetivo.timestampName}/${mediaNombreSinExt}]]"
+origen: "${wikilinkMedia}"
 anclas: []
 relacionados:
 ${enlacesRelacionadosFrontmatter.map(r => `  - "${r}"`).join('\n')}
@@ -365,7 +415,7 @@ ${contenidoBruto}
 ${seccionOportunidades}
 
 <!-- auto:begin -->
-*Concepto extraído y curado automáticamente por El Vigilante desde [[Media/${objetivo.timestampName}/${mediaNombreSinExt}]].*
+*Concepto extraído y curado automáticamente por El Vigilante desde ${wikilinkMedia}.*
 <!-- auto:end -->
 `;
 
@@ -377,12 +427,17 @@ ${seccionOportunidades}
         _inyectarEnlaceEnHuerfano(objetivo, enlacesParaMedia);
 
         // Inyectar backlink reactivo en la zona <!-- auto:begin --> de los proyectos activos impactados
-        for (const proy of proyectosImpactados) {
+        for (const proy of topProyectos) {
             if (proy.estado === 'activo' || proy.estado === 'produccion') {
                 _inyectarOportunidadEnProyecto(proy, safeTitle, mediaNombreSinExt, resumenCorto);
             }
         }
 
+        // Disparar Semantic Bridge UNA SOLA VEZ sobre la nueva nota conceptual consolidada
+        const { enqueue } = require('./gpuQueueService');
+        const rutaRelNueva = path.relative(VAULT_PATH_BOVEDA, newNotePath).replace(/\\/g, '/');
+        enqueue('semantic_bridge', 3, { notasAnalizadas: [rutaRelNueva] });
+        console.log(`[VIGILANTE] 🌉 Semantic Bridge encolado (1 sola vez) para evaluar impacto de "${safeTitle}".`);
         console.log(`[VIGILANTE] Curaduría completada con éxito. Quedan ${huerfanos.length - 1} en cola.`);
 
     } catch (e) {

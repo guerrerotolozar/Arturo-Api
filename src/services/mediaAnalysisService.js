@@ -412,6 +412,14 @@ No agregues texto explicativo fuera del JSON.`;
 
         console.log(`[MEDIA_ANALYSIS] ✅ Análisis de ID #${mediaId} completado exitosamente.`);
 
+        // Encadenar El Vigilante automáticamente para curar/ampliar el concepto y evaluar su impacto (1 sola vez)
+        try {
+            const { ejecutarCuraduria } = require('./vigilanteService');
+            ejecutarCuraduria();
+        } catch (errVig) {
+            console.warn(`[MEDIA_ANALYSIS] No se pudo encolar curaduría automática:`, errVig.message);
+        }
+
     } catch (error) {
         console.error(`[MEDIA_ANALYSIS] ❌ Falló el análisis inteligente del video #${mediaId}:`, error);
     }

@@ -1,21 +1,32 @@
 /**
- * src/use-cases/sincronizarBovedaUseCase.js
+ * src/use-cases/vaultIndexer.js
  *
- * Única responsabilidad: leer la Bóveda de Obsidian, dividir el contenido
- * en chunks lógicos y guardarlos en LanceDB con sus embeddings.
- *
- * No toca req/res — recibe parámetros, devuelve resultado.
- *
- * Estrategia de chunking:
- *   1. Divide cada archivo .md por encabezados (## o ###)
- *   2. Si un bloque no tiene encabezados, divide por doble salto de línea
- *   3. Cada chunk lleva metadata: ruta, nombre, carpeta, fecha de sync
+ * Única responsabilidad: leer la Bóveda de Obsidian, verificar el Hash Cognitivo de Sustancia
+ * (ignorando zonas de máquina <!-- auto:begin --> y backlinks automáticos), dividir el contenido
+ * sustantivo en chunks lógicos y guardarlos en LanceDB con sus embeddings 4096d.
  */
 
+const crypto = require('crypto');
 const { leerVaultRecursivo } = require('../repositories/vaultRepository');
 const { upsertDocumentos, limpiarColeccion, contarDocumentos, estaDisponible, eliminarDocumentosPorRuta } = require('../repositories/vectorRepository');
 const { obtenerEstadoSync, upsertEstadoSync, eliminarEstadoSync, limpiarEstadoSync } = require('../repositories/syncRepository');
 const { VAULT_PATH_BOVEDA } = require('../config/env');
+
+/**
+ * Calcula el Hash Cognitivo (SHA-256) únicamente sobre el contenido sustantivo de la nota,
+ * ignorando metadatos de máquina, bloques <!-- auto:begin -->...<!-- auto:end -->,
+ * timestamps de rendimiento y bloques de Conexiones Cerebrales inyectados en Media/.
+ */
+function calcularHashSustancia(contenido) {
+    const sustantivo = String(contenido || '')
+        .replace(/<!-- auto:begin -->[\s\S]*?<!-- auto:end -->/g, '')
+        .replace(/^---\r?\n[\s\S]*?\r?\n---/, '')
+        .replace(/## 🧠 Conexiones Cerebrales[\s\S]*?(?=\r?\n---\r?\n|\r?\n## |$)/g, '')
+        .replace(/## ⏱️ Rendimiento del Análisis Profundo[\s\S]*$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return crypto.createHash('sha256').update(sustantivo).digest('hex');
+}
 
 /**
  * Extrae los tags del frontmatter YAML de una nota.
@@ -58,7 +69,7 @@ function extraerTagsYAML(contenido) {
 }
 
 /**
- * Divide el contenido de un archivo .md en chunks lógicos.
+ * Divide el contenido de un archivo .md en chunks lógicos excluyendo zonas de máquina y telemetría.
  *
  * @param {string} contenido  - Texto completo del archivo
  * @param {string} nombreNota - Nombre del archivo (sin extensión)
@@ -72,8 +83,11 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
 
     const tagsMetadata = extraerTagsYAML(contenido);
 
-    // Excluir zonas de máquina (auto:begin/end) para evitar bucles e indexado de metadatos operativos
-    const contenidoLimpio = String(contenido || '').replace(/<!-- auto:begin -->[\s\S]*?<!-- auto:end -->/g, '');
+    // Excluir zonas de máquina (auto:begin/end) y telemetría de tiempos para evitar ruido vectorial
+    const contenidoLimpio = String(contenido || '')
+        .replace(/<!-- auto:begin -->[\s\S]*?<!-- auto:end -->/g, '')
+        .replace(/---\r?\n+## ⏱️ Rendimiento del Análisis Profundo[\s\S]*$/g, '')
+        .replace(/## ⏱️ Rendimiento del Análisis Profundo[\s\S]*$/g, '');
 
     // Paso 1: Dividir por encabezados markdown (##, ###, ####)
     const secciones = contenidoLimpio.split(/(?=^#{2,4}\s)/m);
@@ -82,7 +96,6 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
         const limpio = seccion.trim();
         if (limpio.length < MIN_CHUNK_LENGTH) continue;
 
-        // Si la sección es muy larga, subdividir por doble salto de línea
         if (limpio.length > MAX_CHUNK_LENGTH) {
             const parrafos = limpio.split(/\n\n+/);
             let buffer = '';
@@ -95,7 +108,6 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
                     buffer += (buffer ? '\n\n' : '') + parrafo;
                 }
             }
-            // Flush del buffer restante
             if (buffer.trim().length >= MIN_CHUNK_LENGTH) {
                 chunks.push(crearChunk(buffer.trim(), nombreNota, rutaNota, chunks.length, tagsMetadata));
             }
@@ -111,7 +123,6 @@ function dividirEnChunks(contenido, nombreNota, rutaNota) {
  * Crea un objeto chunk con su ID único y metadata.
  */
 function crearChunk(texto, nombreNota, rutaNota, index, tags = '') {
-    // ID único: ruta_normalizada::índice_seccion
     const idBase = rutaNota.replace(/[/\\]/g, '_').replace(/\.md$/, '');
     return {
         id: `${idBase}::${index}`,
@@ -129,18 +140,11 @@ function crearChunk(texto, nombreNota, rutaNota, index, tags = '') {
 }
 
 /**
- * Ejecuta la sincronización completa de la Bóveda a LanceDB.
- *
- * @param {object} opciones
- * @param {boolean}  opciones.forzarReset - Si true, borra la colección antes de insertar
- * @param {string}   opciones.carpeta     - Si se especifica, solo sincroniza esa carpeta
- * @param {function} opciones.onProgress  - Callback de progreso
- * @returns {Promise<{exito: boolean, totalNotas: number, totalChunks: number, tiempo: number}>}
+ * Ejecuta la sincronización incremental de la Bóveda a LanceDB guiada por Hash Cognitivo.
  */
 async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgress = () => {} } = {}) {
     const tStart = Date.now();
 
-    // 1. Verificar que LanceDB esté disponible
     const disponible = await estaDisponible();
     if (!disponible) {
         return {
@@ -152,52 +156,57 @@ async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgre
         };
     }
 
-    // 2. Reset si se solicita
     if (forzarReset) {
         onProgress('Limpiando colección anterior...');
         await limpiarColeccion();
-        limpiarEstadoSync(); // Limpiar también SQLite
+        limpiarEstadoSync();
         console.log('[SYNC] Colección y estado limpiados — reset forzado.');
     }
 
-    // 3. Leer todas las notas de la Bóveda (y sus mtimeMs)
     onProgress('Analizando Bóveda...');
     const dirLectura = carpeta
         ? require('path').join(VAULT_PATH_BOVEDA || '', carpeta)
-        : undefined; // undefined = leer todo el vault
+        : undefined;
 
     const notasFisicas = leerVaultRecursivo(dirLectura);
     console.log(`[SYNC] ${notasFisicas.length} notas detectadas en disco.`);
 
-    // 4. Lógica Incremental: Comparar con SQLite
-    const estadoAnterior = obtenerEstadoSync(); // Map<ruta, mtimeMs>
+    // 4. Lógica Incremental con Hash Cognitivo de Sustancia
+    const estadoAnterior = obtenerEstadoSync(); // Map<ruta, {mtimeMs, hashSustancia}>
     const notasAProcesar = [];
     const rutasEnBoveda = new Set();
-    
+    let omitidasPorHash = 0;
     let eliminadas = 0;
     
     for (const nota of notasFisicas) {
         rutasEnBoveda.add(nota.ruta);
-        // Math.floor para evitar ligeros bugs de precisión de microsegundos en fs.stat
-        const mtimeMsNota = Math.floor(nota.mtimeMs || 0); 
-        const mtimeAnterior = estadoAnterior.get(nota.ruta);
-        
+        const mtimeMsNota = Math.floor(nota.mtimeMs || 0);
+        const regAnterior = estadoAnterior.get(nota.ruta);
+        const mtimeAnterior = regAnterior ? regAnterior.mtimeMs : null;
+        const hashAnterior = regAnterior ? regAnterior.hashSustancia : '';
+
         if (!mtimeAnterior || mtimeAnterior !== mtimeMsNota) {
-            // Es nueva o fue modificada
+            const hashActual = calcularHashSustancia(nota.contenido);
+            nota.hashSustancia = hashActual;
+
+            if (mtimeAnterior && hashAnterior && hashAnterior === hashActual) {
+                // El archivo fue tocado en disco pero SOLO en su zona <!-- auto:begin --> o enlaces automáticos.
+                // Actualizamos mtimeMs en SQLite silenciosamente sin re-vectorizar ni disparar el Bridge.
+                upsertEstadoSync(nota.ruta, mtimeMsNota, hashActual);
+                omitidasPorHash++;
+                continue;
+            }
+
             if (mtimeAnterior) {
-                 // Fue modificada: borrar vectores viejos en LanceDB antes de insertar los nuevos
-                 await eliminarDocumentosPorRuta(nota.ruta);
+                await eliminarDocumentosPorRuta(nota.ruta);
             }
             notasAProcesar.push(nota);
         }
     }
     
-    // Buscar archivos eliminados en la bóveda
-    // (Solo hacemos esto si estamos haciendo un sync global, no de una sola carpeta)
     if (!carpeta && !forzarReset) {
         for (const rutaVieja of estadoAnterior.keys()) {
             if (!rutasEnBoveda.has(rutaVieja)) {
-                // El archivo ya no existe físicamente, eliminar sus vectores y estado
                 await eliminarDocumentosPorRuta(rutaVieja);
                 eliminarEstadoSync(rutaVieja);
                 eliminadas++;
@@ -206,19 +215,23 @@ async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgre
     }
 
     if (notasAProcesar.length === 0 && eliminadas === 0) {
-        console.log(`[SYNC] Nada que sincronizar. Todo está al día.`);
-        onProgress(`✅ Bóveda al día (0 cambios).`);
+        if (omitidasPorHash > 0) {
+            console.log(`[SYNC] ⚡ ${omitidasPorHash} archivo(s) actualizados solo en metadatos/auto-bloque (sustancia intacta, 0 re-vectorizaciones).`);
+        } else {
+            console.log(`[SYNC] Nada que sincronizar. Todo está al día.`);
+        }
+        onProgress(`✅ Bóveda al día (0 cambios sustantivos).`);
         return { 
             exito: true, 
             totalNotas: notasFisicas.length, 
             totalChunks: 0, 
             tiempo: ((Date.now() - tStart) / 1000).toFixed(1),
-            mensaje: "Sin cambios"
+            mensaje: "Sin cambios sustantivos"
         };
     }
 
-    // 5. Generar chunks SOLAMENTE de las notas a procesar
-    onProgress(`Vectorizando ${notasAProcesar.length} notas cambiadas...`);
+    // 5. Generar chunks SOLAMENTE de las notas con cambio sustantivo real
+    onProgress(`Vectorizando ${notasAProcesar.length} notas con cambios sustantivos...`);
     const todosLosChunks = [];
 
     for (const nota of notasAProcesar) {
@@ -230,25 +243,18 @@ async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgre
         console.log(`[SYNC] ${todosLosChunks.length} chunks nuevos/modificados a insertar.`);
         await upsertDocumentos(todosLosChunks);
         
-        // 6. Actualizar SQLite estado
-        let hayMedia = false;
         for (const nota of notasAProcesar) {
-            upsertEstadoSync(nota.ruta, Math.floor(nota.mtimeMs || 0));
-            if (nota.ruta.includes('Media') || nota.ruta.includes('Media\\')) hayMedia = true;
+            const hash = nota.hashSustancia || calcularHashSustancia(nota.contenido);
+            upsertEstadoSync(nota.ruta, Math.floor(nota.mtimeMs || 0), hash);
         }
-
-        // 7. Disparar Semantic Bridge si hubo notas de Media nuevas
-        if (hayMedia) {
-            const { enqueue } = require('../services/gpuQueueService');
-            // Encolamos el Bridge para analizar estas nuevas notas
-            enqueue('semantic_bridge', 3, { notasAnalizadas: notasAProcesar.filter(n => n.ruta.includes('Media')).map(n => n.ruta) });
-            console.log(`[SYNC] 🌉 Evento disparado: Semantic Bridge encolado en GPU Queue.`);
-        }
+        // NOTA ARQUITECTÓNICA (Pilar III):
+        // Las notas crudas de Media/ NUNCA disparan el Semantic Bridge desde vault_sync.
+        // El Semantic Bridge es disparado una única vez por El Vigilante cuando el concepto ha sido curado o ampliado.
     }
 
     const totalEnDB = await contarDocumentos();
     const tiempoTotal = ((Date.now() - tStart) / 1000).toFixed(1);
-    console.log(`[SYNC] ✅ Sincronización Incremental completada: ${notasAProcesar.length} actualizados, ${eliminadas} borrados. Total docs: ${totalEnDB} [${tiempoTotal}s]`);
+    console.log(`[SYNC] ✅ Sincronización Incremental completada: ${notasAProcesar.length} sustantivos actualizados (${omitidasPorHash} auto-bloques omitidos), ${eliminadas} borrados. Total docs: ${totalEnDB} [${tiempoTotal}s]`);
 
     return {
         exito: true,
@@ -256,7 +262,7 @@ async function sincronizarBoveda({ forzarReset = false, carpeta = null, onProgre
         totalChunks: todosLosChunks.length,
         totalEnDB,
         tiempo: parseFloat(tiempoTotal),
-        mensaje: `Actualizadas: ${notasAProcesar.length}, Eliminadas: ${eliminadas}`
+        mensaje: `Actualizadas: ${notasAProcesar.length}, Omitidas(auto): ${omitidasPorHash}, Eliminadas: ${eliminadas}`
     };
 }
 
@@ -270,4 +276,4 @@ async function obtenerEstadoVectorial() {
     return { disponible, documentos };
 }
 
-module.exports = { sincronizarBoveda, obtenerEstadoVectorial };
+module.exports = { sincronizarBoveda, obtenerEstadoVectorial, calcularHashSustancia };

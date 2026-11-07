@@ -1,9 +1,10 @@
 const fs = require('fs');
 const path = require('path');
-const { z } = require('zod');
-const { ChatOllama } = require("@langchain/ollama");
 const { OLLAMA_MODEL, OLLAMA_URL, VAULT_PATH_BOVEDA } = require('../config/env');
+const { llamarOllama } = require('../adapters/ollamaAdapter');
 const { buscarSemanticamente, estaDisponible, inicializar } = require('../repositories/vectorRepository');
+
+const CONCEPT_REFACTOR_MODEL = (process.env.CONCEPT_REFACTOR_MODEL || 'qwen3.5:9b-q8_0').trim();
 
 /**
  * Extrae metadatos clave del frontmatter YAML v2 de una nota.
@@ -147,6 +148,8 @@ ${objetivo.content.substring(0, 8000)}
 =======================================`;
 
     try {
+        const { z } = require('zod');
+        const { ChatOllama } = require("@langchain/ollama");
         const baseUrl = OLLAMA_URL.replace('/api/generate', '').replace('/api/chat', '');
         const llm = new ChatOllama({ baseUrl, model: OLLAMA_MODEL, temperature: 0.2 });
 
@@ -335,11 +338,14 @@ ${objetivo.content.substring(0, 8000)}
                     }
                 }
 
-                // Disparar Semantic Bridge UNA SOLA VEZ sobre el concepto ampliado
+                // FASE 2: Encolar refundición lógica con qwen3.5:9b-q8_0 (que al terminar encola semantic_bridge 1 sola vez)
                 const { enqueue } = require('./gpuQueueService');
-                enqueue('semantic_bridge', 3, { notasAnalizadas: [candidatoFusion.rutaNorm] });
-                console.log(`[VIGILANTE] 🌉 Semantic Bridge encolado (1 sola vez) para evaluar impacto de "${nombreExistente}".`);
-                console.log(`[VIGILANTE] Curaduría completada (ampliación tangible). Quedan ${huerfanos.length - 1} en cola.`);
+                enqueue('concept_refactor', 3, {
+                    rutaRelativa: candidatoFusion.rutaNorm,
+                    dispararBridge: true
+                });
+                console.log(`[VIGILANTE] 🧠 Fase 2 encolada (concept_refactor con ${CONCEPT_REFACTOR_MODEL}) para integrar la #Ampliación en "${nombreExistente}.md".`);
+                console.log(`[VIGILANTE] Curaduría Fase 1 completada (base tangible guardada). Quedan ${huerfanos.length - 1} en cola.`);
                 return;
             }
         }
@@ -523,8 +529,179 @@ function _inyectarOportunidadEnProyecto(proyecto, conceptoTitulo, mediaTitulo, r
     }
 }
 
+/**
+ * FASE 2 DE FUSIÓN TANGIBLE:
+ * Toma una Nota Conceptual que contiene una o más secciones "## 📎 Ampliación..."
+ * y utiliza el modelo pensante (qwen3.5:9b-q8_0) para integrar orgánicamente el nuevo
+ * conocimiento en la estructura lógica del .md, preservando intactos el frontmatter YAML,
+ * las Oportunidades de Aplicación y el bloque <!-- auto:begin -->.
+ */
+async function ejecutarRefundicionConcepto(payload = {}) {
+    const { rutaRelativa, dispararBridge = false } = payload;
+    if (!rutaRelativa) return { status: 'skipped', reason: 'sin_ruta' };
+
+    const fullPath = path.join(VAULT_PATH_BOVEDA, rutaRelativa);
+    if (!fs.existsSync(fullPath)) {
+        return { status: 'skipped', reason: 'archivo_no_existe' };
+    }
+
+    const contenidoCompleto = fs.readFileSync(fullPath, 'utf8');
+    if (!contenidoCompleto.includes('## 📎 Ampliación')) {
+        return { status: 'skipped', reason: 'sin_ampliacion_pendiente' };
+    }
+
+    console.log(`\n[VIGILANTE-FASE2] 🧠 Iniciando refundición cognitiva con ${CONCEPT_REFACTOR_MODEL} en: ${rutaRelativa}`);
+
+    // 1. Separar Frontmatter YAML
+    const fmMatch = contenidoCompleto.match(/^(---\r?\n[\s\S]*?\r?\n---)\r?\n+([\s\S]*)$/);
+    if (!fmMatch) {
+        console.warn(`[VIGILANTE-FASE2] ⚠️  Nota sin frontmatter válido, se conserva la #Ampliación intacta.`);
+        return { status: 'aborted', reason: 'sin_frontmatter' };
+    }
+
+    let frontmatter = fmMatch[1];
+    const resto = fmMatch[2];
+
+    // 2. Separar la cola protegida (## 💡 Oportunidades de Aplicación y/o <!-- auto:begin -->)
+    let zonaConceptual = resto;
+    let colaProtegida = '';
+
+    const idxOportunidades = resto.search(/(?:\r?\n---\r?\n+|\r?\n)## 💡 Oportunidades de Aplicación/);
+    const idxAuto = resto.search(/(?:\r?\n)*<!-- auto:begin -->/);
+
+    if (idxOportunidades !== -1) {
+        zonaConceptual = resto.slice(0, idxOportunidades).trim();
+        colaProtegida = resto.slice(idxOportunidades).trim();
+    } else if (idxAuto !== -1) {
+        zonaConceptual = resto.slice(0, idxAuto).trim();
+        colaProtegida = resto.slice(idxAuto).trim();
+    }
+
+    // 3. Dividir zonaConceptual en Base Original vs Ampliaciones Pendientes
+    const idxAmp = zonaConceptual.search(/(?:\r?\n---\r?\n+|\r?\n)?## 📎 Ampliación/);
+    if (idxAmp === -1) {
+        return { status: 'skipped', reason: 'ampliacion_no_localizada' };
+    }
+
+    const baseOriginal = zonaConceptual.slice(0, idxAmp).trim();
+    const bloqueAmpliaciones = zonaConceptual.slice(idxAmp).replace(/^\r?\n*---\r?\n*/, '').trim();
+
+    // Extraer metadatos de trazabilidad (títulos de ampliación y orígenes [[Media/...]])
+    const titulosAmpliacion = [...bloqueAmpliaciones.matchAll(/^## 📎 Ampliación\s*(?:\([^)]+\))?:\s*(.+)$/gm)].map(m => m[1].trim());
+    const origenesMedia = [...bloqueAmpliaciones.matchAll(/-\s*\*\*Origen:\*\*\s*(\[\[[^\]]+\]\])/g)].map(m => m[1].trim());
+
+    // Asegurar que los orígenes estén en relacionados: del frontmatter
+    for (const orig of origenesMedia) {
+        if (!frontmatter.includes(orig)) {
+            frontmatter = frontmatter.replace(/(relacionados:\r?\n)/, `$1  - "${orig}"\n`);
+        }
+    }
+
+    const promptRefundicion = `Eres un Arquitecto de Conocimiento Técnico para un Segundo Cerebro de IA.
+Tu objetivo es integrar y refundir de manera orgánica la sección "AMPLIACIÓN A INTEGRAR" dentro del documento "BASE CONCEPTUAL ORIGINAL", produciendo un único cuerpo Markdown cohesivo, estructurado y sin redundancias.
+
+=== BASE CONCEPTUAL ORIGINAL ===
+${baseOriginal}
+
+=== AMPLIACIÓN A INTEGRAR ===
+${bloqueAmpliaciones}
+
+=== REGLAS ESTRICTAS DE REFUNDICIÓN ===
+1. La primera línea DEBE ser exactamente el título H1 original (empezando por "# ").
+2. Integra los conceptos, especificaciones técnicas, protocolos (ej. ESC/POS, medidas, estándares), flujos y buenas prácticas de la AMPLIACIÓN dentro de las secciones correspondientes del documento (o crea una nueva sección "## " si aporta una capa técnica nueva).
+3. PROHIBIDO perder detalles técnicos, cifras, nombres de protocolos, comandos o enlaces WikiLink del tipo [[Nombre]]. Conserva absolutamente toda la riqueza técnica de ambas partes.
+4. Elimina el título temporal "## 📎 Ampliación..." y las líneas de metadatos "- **Origen:**" o "- **Proyectos Aplicables:**", ya que su conocimiento quedará fusionado en las secciones formales.
+5. NO agregues bloques YAML (---), NO agregues la sección "## 💡 Oportunidades de Aplicación" y NO envuelvas la respuesta en bloques de código \`\`\`markdown. Devuelve ÚNICAMENTE el texto Markdown refundido empezando por "# ".`;
+
+    try {
+        const t0 = Date.now();
+        let respuestaLLM = await llamarOllama(
+            promptRefundicion,
+            CONCEPT_REFACTOR_MODEL,
+            null,
+            null,
+            { num_ctx: 16384, num_predict: 8192, temperature: 0.2, rejectTruncated: true }
+        );
+
+        // Limpiar posibles etiquetas <think>...</think> o fences markdown externos
+        respuestaLLM = String(respuestaLLM || '')
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .trim();
+
+        if (respuestaLLM.startsWith('```')) {
+            respuestaLLM = respuestaLLM
+                .replace(/^```(?:markdown|md)?\r?\n/i, '')
+                .replace(/\r?\n```$/, '')
+                .trim();
+        }
+
+        // Asegurar que arranque desde el primer encabezado H1 (# )
+        const h1Idx = respuestaLLM.search(/^#\s+/m);
+        if (h1Idx > 0) {
+            respuestaLLM = respuestaLLM.slice(h1Idx).trim();
+        }
+
+        // Guardrail determinista estricto:
+        // 1. Debe ser al menos 95% tan largo como la base original (al integrar una ampliación el texto crece o se mantiene).
+        // 2. Debe terminar en signo de puntuación válido (nunca cortado a mitad de palabra).
+        const longitudMinima = Math.floor(baseOriginal.length * 0.95);
+        const terminaLimpio = /[.!?)}\]*`]$/.test(respuestaLLM);
+        if (!respuestaLLM.startsWith('# ') || respuestaLLM.length < longitudMinima || !terminaLimpio || respuestaLLM.includes('## 📎 Ampliación')) {
+            console.warn(`[VIGILANTE-FASE2] ⚠️  Guardrail activado (len=${respuestaLLM.length} vs min=${longitudMinima}, terminaLimpio=${terminaLimpio}). Se preserva la versión con #Ampliación intacta.`);
+            return { status: 'guardrail_kept_staged', len: respuestaLLM.length };
+        }
+
+        // Registrar trazabilidad de la refundición en <!-- auto:begin -->
+        const fechaHoy = new Date().toISOString().slice(0, 10);
+        const resumenTraza = titulosAmpliacion.length > 0 ? titulosAmpliacion.join(' + ') : 'Ampliación técnica';
+        const origenTraza = origenesMedia.length > 0 ? ` (${origenesMedia.join(', ')})` : '';
+        const lineaTraza = `*Refundición cognitiva (${fechaHoy} · ${CONCEPT_REFACTOR_MODEL}): Integrada ampliación "${resumenTraza}"${origenTraza}.*`;
+
+        if (colaProtegida.includes('<!-- auto:begin -->')) {
+            colaProtegida = colaProtegida.replace(
+                /<!-- auto:begin -->([\s\S]*?)<!-- auto:end -->/,
+                (full, inner) => `<!-- auto:begin -->${inner.trimEnd()}\n${lineaTraza}\n<!-- auto:end -->`
+            );
+        }
+
+        const documentoFinal = `${frontmatter}\n\n${respuestaLLM}\n\n${colaProtegida}\n`;
+        fs.writeFileSync(fullPath, documentoFinal, 'utf8');
+
+        const elapsedS = ((Date.now() - t0) / 1000).toFixed(1);
+        console.log(`[VIGILANTE-FASE2] ✅ Nota refundida exitosamente con ${CONCEPT_REFACTOR_MODEL} en ${elapsedS}s: ${rutaRelativa}`);
+
+        // Liberar los 9.7 GB de VRAM de qwen3.5:9b-q8_0 tras la refundición
+        try {
+            await fetch(OLLAMA_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: CONCEPT_REFACTOR_MODEL, keep_alive: 0 })
+            });
+            console.log(`[VIGILANTE-FASE2] 🧹 VRAM de ${CONCEPT_REFACTOR_MODEL} liberada (keep_alive: 0).`);
+        } catch {
+            // Ignorar si falla la descarga de VRAM
+        }
+
+        if (dispararBridge) {
+            const { enqueue } = require('./gpuQueueService');
+            enqueue('semantic_bridge', 3, { notasAnalizadas: [rutaRelativa] });
+            console.log(`[VIGILANTE-FASE2] 🌉 Semantic Bridge encolado (1 sola vez) tras refundición de "${rutaRelativa}".`);
+        }
+
+        return { status: 'completed', rutaRelativa, elapsedS };
+    } catch (err) {
+        console.error(`[VIGILANTE-FASE2] ❌ Error en refundición con ${CONCEPT_REFACTOR_MODEL} (se conserva #Ampliación en disco):`, err.message);
+        if (dispararBridge) {
+            const { enqueue } = require('./gpuQueueService');
+            enqueue('semantic_bridge', 3, { notasAnalizadas: [rutaRelativa] });
+        }
+        return { status: 'error_kept_staged', error: err.message };
+    }
+}
+
 module.exports = {
     ejecutarCuraduria,
     ejecutarCuraduriaEncolada,
+    ejecutarRefundicionConcepto,
     _descubrirProyectosBoveda
 };

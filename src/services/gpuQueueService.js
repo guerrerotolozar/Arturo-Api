@@ -38,6 +38,7 @@ function calculateDynamicPriority(type, payloadObj) {
         return isTrading ? 1 : 0;
     }
     if (type === 'media_analysis') return 2;
+    if (type === 'concept_refactor') return 3;
     if (type === 'semantic_bridge') return 3;
     if (type === 'vault_sync') return 3;
     if (type === 'vigilante_curation') return 4;
@@ -162,6 +163,10 @@ async function processQueueTick() {
                 } else if (task.type === 'vigilante_curation') {
                     const { ejecutarCuraduriaEncolada } = require('./vigilanteService');
                     const result = await ejecutarCuraduriaEncolada();
+                    markCompleted(task.id, result || { status: 'completado' });
+                } else if (task.type === 'concept_refactor') {
+                    const { ejecutarRefundicionConcepto } = require('./vigilanteService');
+                    const result = await ejecutarRefundicionConcepto(task.payload);
                     markCompleted(task.id, result || { status: 'completado' });
                 } else if (task.type === 'semantic_bridge') {
                     const { runSemanticBridge } = require('./bridgeService');

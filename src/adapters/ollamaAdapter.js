@@ -30,7 +30,7 @@ let ollamaMutex = Promise.resolve();
  * @param {string|null} formato - "json" para forzar salida JSON estructurada
  * @returns {Promise<string>}
  */
-async function llamarOllama(prompt, modelo, formato = null, images = null) {
+async function llamarOllama(prompt, modelo, formato = null, images = null, customOptions = null) {
     // Adquirir el ticket para la sala de espera
     let releaseMutex;
     const currentMutex = ollamaMutex;
@@ -38,12 +38,14 @@ async function llamarOllama(prompt, modelo, formato = null, images = null) {
     await currentMutex; // Esperar a que el anterior termine
 
     try {
+        const { rejectTruncated, think, ...ollamaOpts } = customOptions || {};
         const body = { 
             model: modelo, 
             prompt, 
             stream: true,
-            options: { num_ctx: 8192 }
+            options: { num_ctx: 8192, num_predict: 8192, ...ollamaOpts }
         };
+        if (typeof think === 'boolean') body.think = think;
         if (formato) body.format = formato;
         if (images) body.images = images;
 
@@ -59,6 +61,7 @@ async function llamarOllama(prompt, modelo, formato = null, images = null) {
 
     // Parsear stream NDJSON línea por línea
     const respuestaAcumulada = [];
+    let doneReason = null;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -84,7 +87,10 @@ async function llamarOllama(prompt, modelo, formato = null, images = null) {
                     respuestaAcumulada.push(chunk.response);
                 }
 
-                if (chunk.done) break;
+                if (chunk.done) {
+                    doneReason = chunk.done_reason || null;
+                    break;
+                }
             } catch {
                 // Línea NDJSON mal formada — ignorar y seguir
             }
@@ -94,6 +100,9 @@ async function llamarOllama(prompt, modelo, formato = null, images = null) {
         const resultado = respuestaAcumulada.join('').trim();
         if (!resultado) {
             throw new Error(`Ollama devolvió respuesta vacía para modelo "${modelo}"`);
+        }
+        if (rejectTruncated && doneReason === 'length') {
+            throw new Error(`Respuesta truncada por límite de tokens (done_reason=length) en modelo "${modelo}"`);
         }
         return resultado;
     } finally {

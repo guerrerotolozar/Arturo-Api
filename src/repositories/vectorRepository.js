@@ -215,7 +215,7 @@ async function buscarSemanticamente(query, topK = 5, tagsFiltro = [], opciones =
         clausulasWhere.push(`(carpeta != 'Media' AND ruta NOT LIKE 'Media/%' AND ruta NOT LIKE '%/Media/%')`);
     }
     if (opciones && opciones.soloProyectos) {
-        clausulasWhere.push(`(ruta LIKE 'OPERACIONES/Proyectos/%' OR ruta LIKE 'OPERACIONES/Finanzas/%')`);
+        clausulasWhere.push(`(ruta LIKE 'OPERACIONES/Proyectos/%' OR ruta LIKE 'OPERACIONES/Finanzas/%' OR ruta LIKE 'OPERACIONES/Infraestructura/%')`);
     }
 
     const whereFinal = clausulasWhere.length > 0 ? clausulasWhere.join(' AND ') : null;

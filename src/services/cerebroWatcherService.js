@@ -53,7 +53,7 @@ function iniciarWatcherCerebro() {
         ignored: (targetPath) => {
             const rel = path.relative(VAULT_PATH_BOVEDA, targetPath);
             if (!rel || rel === '') return false; // nunca ignorar la raíz VAULT_PATH_BOVEDA
-            if (rel.includes('Bitacora_Ordenes_OasisStore')) return true;
+            if (rel.includes('Bitacora_Ordenes_OasisStore') || rel.includes('Mapa_Directorios_y_Espacio_Servidor')) return true;
             const parts = rel.split(/[/\\]/);
             return parts.some(p => p.startsWith('.') || ignoredDirs.has(p));
         },

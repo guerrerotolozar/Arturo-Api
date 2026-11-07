@@ -476,12 +476,18 @@ ${resumen}
 
     if (seccionesSeguras.length > 0) {
         seccionesSeguras.forEach(sec => {
-            md += `\n---\n\n## 💡 ${sec.titulo_seccion || 'Sección'}\n`;
-            if (Array.isArray(sec.contenido)) {
-                md += sec.contenido.map(p => `- ${p}`).join('\n') + '\n';
-            } else if (typeof sec.contenido === 'string') {
-                md += `- ${sec.contenido}\n`;
-            }
+            if (!sec || typeof sec !== 'object') return;
+            const rawTitle = String(sec.titulo_seccion || sec.titulo || sec.title || sec.nombre || '').trim();
+            const tituloLimpio = (!rawTitle || /^secci[oó]n$/i.test(rawTitle)) ? 'Puntos Clave y Herramientas' : rawTitle;
+            const rawItems = sec.contenido ?? sec.puntos ?? sec.items ?? sec.bullets ?? sec.descripcion ?? [];
+            const listaItems = (Array.isArray(rawItems) ? rawItems : [rawItems])
+                .map(p => String(p || '').trim())
+                .filter(Boolean);
+
+            if (listaItems.length === 0) return;
+
+            md += `\n---\n\n## 💡 ${tituloLimpio}\n`;
+            md += listaItems.map(p => `- ${p}`).join('\n') + '\n';
         });
     }
 

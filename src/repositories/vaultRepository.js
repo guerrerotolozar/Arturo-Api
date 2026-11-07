@@ -43,13 +43,15 @@ function leerVaultRecursivo(dir = BASE_VAULT_DIR, baseRoot = BASE_VAULT_DIR) {
                 if (entrada.name.startsWith('.') || IGNORED_VAULT_DIRS.has(entrada.name)) continue;
                 resultados.push(...leerVaultRecursivo(ruta, baseRoot));
             } else if (entrada.name.endsWith('.md')) {
-                if (entrada.name.includes('Bitacora_Ordenes_OasisStore')) continue;
+                if (entrada.name.includes('Bitacora_Ordenes_OasisStore') || entrada.name.includes('Mapa_Directorios_y_Espacio_Servidor')) continue;
                 try {
+                    const contenido = fs.readFileSync(ruta, 'utf-8');
+                    if (/^---\r?\n[\s\S]*?^vectorizar:\s*false\b[\s\S]*?\r?\n---/m.test(contenido)) continue;
                     const stats = fs.statSync(ruta);
                     resultados.push({
                         ruta:     path.relative(baseRoot, ruta).replace(/\\/g, '/'),
                         nombre:   path.basename(ruta, '.md'),
-                        contenido: fs.readFileSync(ruta, 'utf-8'),
+                        contenido,
                         mtimeMs:  stats.mtimeMs
                     });
                 } catch { /* archivo inaccesible — ignorar */ }

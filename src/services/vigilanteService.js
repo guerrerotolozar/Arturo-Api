@@ -32,7 +32,8 @@ function _extraerFrontmatter(contenido) {
 function _descubrirProyectosBoveda() {
     const rutasBase = [
         path.join(VAULT_PATH_BOVEDA, 'OPERACIONES', 'Proyectos'),
-        path.join(VAULT_PATH_BOVEDA, 'OPERACIONES', 'Finanzas')
+        path.join(VAULT_PATH_BOVEDA, 'OPERACIONES', 'Finanzas'),
+        path.join(VAULT_PATH_BOVEDA, 'OPERACIONES', 'Infraestructura')
     ];
     const catalogo = new Map(); // rutaRelativaNormalizada -> infoProyecto
 

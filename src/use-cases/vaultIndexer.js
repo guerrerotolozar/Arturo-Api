@@ -21,8 +21,9 @@ function calcularHashSustancia(contenido) {
     const sustantivo = String(contenido || '')
         .replace(/<!-- auto:begin -->[\s\S]*?<!-- auto:end -->/g, '')
         .replace(/^---\r?\n[\s\S]*?\r?\n---/, '')
-        .replace(/## 🧠 Conexiones Cerebrales[\s\S]*?(?=\r?\n---\r?\n|\r?\n## |$)/g, '')
-        .replace(/## ⏱️ Rendimiento del Análisis Profundo[\s\S]*$/g, '')
+        .replace(/(?:\r?\n---\r?\n+|\r?\n)*## 🧠 Conexiones Cerebrales[\s\S]*?(?=\r?\n---\r?\n|\r?\n## |$)/g, '')
+        .replace(/(?:\r?\n---\r?\n+|\r?\n)*## ⏱️ Rendimiento del Análisis Profundo[\s\S]*$/g, '')
+        .replace(/^\s*---\s*$/gm, '')
         .replace(/\s+/g, ' ')
         .trim();
     return crypto.createHash('sha256').update(sustantivo).digest('hex');
